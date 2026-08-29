@@ -118,8 +118,9 @@ bool ASynthCaptureDirector::DispatchNextVehicle()
 	ActiveVehicle->DriveAlong(GetActorForwardVector(), SpeedKph);
 	++PassesDispatched;
 
-	UE_LOG(LogSynthic, Verbose, TEXT("Director: pass %d/%d - %s at %.1f km/h, lane offset %.0fcm."),
-		PassesDispatched, NumPasses, *Spec.Model, SpeedKph, LaneOffset);
+	UE_LOG(LogSynthic, Log, TEXT("Director: pass %d/%d - %s at %.1f km/h from %s, recycling after %.0fcm."),
+		PassesDispatched, NumPasses, *Spec.Model, SpeedKph,
+		*ActiveVehicle->GetActorLocation().ToCompactString(), TravelDistanceCm);
 
 	return true;
 }

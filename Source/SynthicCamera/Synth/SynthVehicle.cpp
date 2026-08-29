@@ -17,8 +17,11 @@ ASynthVehicle::ASynthVehicle()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	VehicleRoot = CreateDefaultSubobject<USceneComponent>(TEXT("VehicleRoot"));
+	SetRootComponent(VehicleRoot);
+
 	VehicleMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VehicleMesh"));
-	SetRootComponent(VehicleMesh);
+	VehicleMesh->SetupAttachment(VehicleRoot);
 
 	// Query-only: the camera's trigger needs to see it, but nothing needs to be blocked.
 	VehicleMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
@@ -92,7 +95,7 @@ void ASynthVehicle::DriveAlong(const FVector& Direction, float SpeedKph)
 	DriveDirection = Normalised;
 	CommandedSpeedKph = SpeedKph;
 	DistanceTravelledCm = 0.0f;
-	bHasPreviousLocation = false;
+	MeasuredVelocity = FVector::ZeroVector;
 
 	SetActorRotation(DriveDirection.Rotation());
 }
@@ -101,22 +104,21 @@ void ASynthVehicle::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	// Measure BEFORE moving, so any overlap the move triggers reads a velocity from a
-	// completed frame rather than a half-applied one.
-	const FVector Current = GetActorLocation();
-	if (bHasPreviousLocation && DeltaSeconds > UE_SMALL_NUMBER)
+	if (CommandedSpeedKph <= 0.0f || DeltaSeconds <= UE_SMALL_NUMBER)
 	{
-		const FVector Delta = Current - PreviousLocation;
-		MeasuredVelocity = Delta / DeltaSeconds;
-		DistanceTravelledCm += static_cast<float>(Delta.Size());
+		return;
 	}
-	PreviousLocation = Current;
-	bHasPreviousLocation = true;
 
-	if (CommandedSpeedKph > 0.0f)
-	{
-		AddActorWorldOffset(DriveDirection * (CommandedSpeedKph * KphToCmPerSec * DeltaSeconds), false);
-	}
+	// Measure the displacement actually applied, against the delta it was applied for.
+	// Comparing positions across two frames instead would divide one frame's movement
+	// by another frame's delta, which is meaningless whenever frame times are uneven -
+	// and offscreen rendering makes them very uneven.
+	const FVector Before = GetActorLocation();
+	AddActorWorldOffset(DriveDirection * (CommandedSpeedKph * KphToCmPerSec * DeltaSeconds), false);
+	const FVector Applied = GetActorLocation() - Before;
+
+	MeasuredVelocity = Applied / DeltaSeconds;
+	DistanceTravelledCm += static_cast<float>(Applied.Size());
 }
 
 void ASynthVehicle::GetVisualBounds(FTransform& OutBoxToWorld, FVector& OutLocalCenter, FVector& OutLocalExtent) const

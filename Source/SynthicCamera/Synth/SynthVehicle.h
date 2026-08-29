@@ -5,6 +5,7 @@
 #include "Synth/SynthTypes.h"
 #include "SynthVehicle.generated.h"
 
+class USceneComponent;
 class UStaticMeshComponent;
 
 /**
@@ -62,6 +63,15 @@ private:
 	void BuildProxyGeometry();
 
 
+	/**
+	 * Plain root at the ground contact point, with the mesh attached beneath it.
+	 * The mesh must NOT be the root: a relative offset on a root component is the
+	 * actor's world location, so seating the body on the ground would teleport the
+	 * whole vehicle to the origin instead of raising its bodywork.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Synthic")
+	TObjectPtr<USceneComponent> VehicleRoot;
+
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<UStaticMeshComponent> VehicleMesh;
 
@@ -71,8 +81,6 @@ private:
 	FVector DriveDirection = FVector::ForwardVector;
 	float CommandedSpeedKph = 0.0f;
 
-	FVector PreviousLocation = FVector::ZeroVector;
 	FVector MeasuredVelocity = FVector::ZeroVector;
 	float DistanceTravelledCm = 0.0f;
-	bool bHasPreviousLocation = false;
 };
