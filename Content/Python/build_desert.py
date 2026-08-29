@@ -53,7 +53,7 @@ CAMERA_SETTINGS = {
 }
 
 RUN_SETTINGS = {
-    "num_passes": 20,
+    "num_passes": 30,
     "random_seed": 1337,
     "min_speed_kph": 40.0,
     "max_speed_kph": 110.0,

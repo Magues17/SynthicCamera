@@ -9,11 +9,21 @@ UENUM(BlueprintType)
 enum class ESynthVehicleClass : uint8
 {
 	Unknown			UMETA(DisplayName = "Unknown"),
+
+	// Military
 	LightUtility	UMETA(DisplayName = "Light Utility"),	// jeep / technical
 	CargoTruck		UMETA(DisplayName = "Cargo Truck"),		// 4-ton, 8-ton
 	APC				UMETA(DisplayName = "APC"),				// wheeled armoured personnel carrier
 	IFV				UMETA(DisplayName = "IFV"),				// tracked infantry fighting vehicle
-	MBT				UMETA(DisplayName = "MBT")				// main battle tank
+	MBT				UMETA(DisplayName = "MBT"),				// main battle tank
+
+	// Civilian. A real roadside camera sees mostly these, and telling them apart from
+	// military traffic is the actual discrimination task - a set with no civilian
+	// vehicles in it teaches a model that everything on the road is a target.
+	Car				UMETA(DisplayName = "Car"),
+	SUV				UMETA(DisplayName = "SUV"),
+	Pickup			UMETA(DisplayName = "Pickup"),
+	BoxTruck		UMETA(DisplayName = "Box Truck")
 };
 
 /** Primitive a vehicle part is built from. */
@@ -122,6 +132,10 @@ struct FSynthVehicleSpec
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Identity")
 	ESynthVehicleClass VehicleClass = ESynthVehicleClass::Unknown;
+
+	/** The headline label: is this a military vehicle or ordinary traffic. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Identity")
+	bool bMilitary = true;
 
 	/** Length (X), width (Y), height (Z) in centimetres - UE's world unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")

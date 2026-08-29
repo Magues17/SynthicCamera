@@ -35,6 +35,13 @@ public:
 
 	const FSynthVehicleSpec& GetSpec() const { return Spec; }
 
+	/**
+	 * True when the livery colour was actually painted on. False for real assets,
+	 * which keep their authored materials - so the label can say the colour field
+	 * describes nothing rather than claiming a paint job the pixels do not show.
+	 */
+	bool WasLiveryApplied() const { return bLiveryApplied; }
+
 	/** Commanded speed in km/h - what we asked for. */
 	float GetCommandedSpeedKph() const { return CommandedSpeedKph; }
 
@@ -92,6 +99,7 @@ private:
 	/** Union of every part in root-local space - what the 2D box is projected from. */
 	FVector LocalBoundsCentre = FVector::ZeroVector;
 	FVector LocalBoundsExtent = FVector::ZeroVector;
+	bool bLiveryApplied = false;
 
 	UPROPERTY(EditAnywhere, Category = "Synthic")
 	FSynthVehicleSpec Spec;

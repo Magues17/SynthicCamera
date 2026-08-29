@@ -463,9 +463,18 @@ TSharedRef<FJsonObject> ASynthSpeedCamera::BuildLabel(const ASynthVehicle& Vehic
 		StaticEnum<ESynthVehicleClass>()->GetNameStringByValue(static_cast<int64>(Spec.VehicleClass)));
 	VehicleJson->SetNumberField(TEXT("axle_count"), Spec.AxleCount);
 	VehicleJson->SetBoolField(TEXT("tracked"), Spec.bTracked);
+	VehicleJson->SetBoolField(TEXT("military"), Spec.bMilitary);
 	VehicleJson->SetStringField(TEXT("livery"), Spec.LiveryName);
-	VehicleJson->SetObjectField(TEXT("livery_rgb"), VectorToJson(
-		FVector(Spec.LiveryColor.R, Spec.LiveryColor.G, Spec.LiveryColor.B)));
+
+	// Only meaningful when the livery was actually painted on. A real asset keeps its
+	// authored materials, so publishing a colour here would describe pixels that do
+	// not exist.
+	VehicleJson->SetBoolField(TEXT("livery_applied"), Vehicle.WasLiveryApplied());
+	if (Vehicle.WasLiveryApplied())
+	{
+		VehicleJson->SetObjectField(TEXT("livery_rgb"), VectorToJson(
+			FVector(Spec.LiveryColor.R, Spec.LiveryColor.G, Spec.LiveryColor.B)));
+	}
 	VehicleJson->SetObjectField(TEXT("dimensions_cm"), VectorToJson(Spec.DimensionsCm));
 	Root->SetObjectField(TEXT("vehicle"), VehicleJson);
 

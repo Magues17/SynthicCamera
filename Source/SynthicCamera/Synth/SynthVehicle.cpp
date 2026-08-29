@@ -37,12 +37,28 @@ void ASynthVehicle::ApplySpec(const FSynthVehicleSpec& InSpec)
 {
 	Spec = InSpec;
 
+	bLiveryApplied = false;
+
 	if (UStaticMesh* Authored = Spec.Mesh.LoadSynchronous())
 	{
-		// Real asset: trust its authored origin and scale, only recolour it.
+		// Real asset: trust its authored origin, scale and materials. Painting the
+		// livery over it would replace textured bodywork, glass and tyres with one
+		// flat colour, which is worse than the proxy it replaced.
 		VehicleMesh->SetStaticMesh(Authored);
 		VehicleMesh->SetRelativeLocation(FVector::ZeroVector);
 		VehicleMesh->SetRelativeScale3D(FVector::OneVector);
+
+		for (UStaticMeshComponent* Old : PartMeshes)
+		{
+			if (Old)
+			{
+				Old->DestroyComponent();
+			}
+		}
+		PartMeshes.Reset();
+
+		CacheVisualBounds();
+		return;
 	}
 	else if (Spec.Parts.Num() > 0)
 	{
@@ -58,6 +74,7 @@ void ASynthVehicle::ApplySpec(const FSynthVehicleSpec& InSpec)
 		ApplyLivery(*VehicleMesh, 1.0f);
 	}
 
+	bLiveryApplied = true;
 	CacheVisualBounds();
 }
 

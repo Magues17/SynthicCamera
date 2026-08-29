@@ -4,6 +4,7 @@
 #include "Synth/SynthSpeedCamera.h"
 #include "Synth/SynthVehicle.h"
 #include "Synth/SynthWeather.h"
+#include "Algo/Count.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -76,6 +77,7 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 		bool bTracked, const TCHAR* Livery, FLinearColor Colour, TArray<FSynthVehiclePart> Parts)
 	{
 		FSynthVehicleSpec Spec;
+		Spec.bMilitary = true;
 		Spec.Make = TEXT("PROXY");
 		Spec.Model = Model;
 		Spec.VehicleClass = Class;
@@ -130,7 +132,39 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 	Mbt.Add(Box(FVector(-60, 0, 208), FVector(340, 232, 56)));			// turret
 	Mbt.Add(Barrel(FVector(200, 0, 212), 24.0f, 450.0f));				// main gun
 
+	// Real assets from the imported pack. Measured pivots sit at ground contact, which
+	// is what the actor origin assumes, so no vertical offset is needed. Dimensions
+	// come from the scan rather than being typed by hand, so the label matches the
+	// geometry a model actually sees.
+	auto Asset = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims,
+		int32 Axles, const TCHAR* MeshPath)
+	{
+		FSynthVehicleSpec Spec;
+		Spec.bMilitary = false;
+		Spec.Make = TEXT("CIVILIAN");
+		Spec.Model = Model;
+		Spec.VehicleClass = Class;
+		Spec.DimensionsCm = Dims;
+		Spec.AxleCount = Axles;
+		Spec.bTracked = false;
+		Spec.Mesh = TSoftObjectPtr<UStaticMesh>(FSoftObjectPath(MeshPath));
+		// Left as-authored: the asset brings its own textured materials.
+		Spec.LiveryName = TEXT("as-authored");
+		return Spec;
+	};
+
 	return {
+		Asset(TEXT("Hatchback"), ESynthVehicleClass::Car, FVector(394, 180, 124), 2,
+			TEXT("/Game/VehicleVarietyPack/Meshes/SM_Hatchback.SM_Hatchback")),
+		Asset(TEXT("SportsCar"), ESynthVehicleClass::Car, FVector(436, 224, 113), 2,
+			TEXT("/Game/VehicleVarietyPack/Meshes/SM_SportsCar.SM_SportsCar")),
+		Asset(TEXT("SUV"), ESynthVehicleClass::SUV, FVector(421, 196, 167), 2,
+			TEXT("/Game/VehicleVarietyPack/Meshes/SM_SUV.SM_SUV")),
+		Asset(TEXT("Pickup"), ESynthVehicleClass::Pickup, FVector(429, 191, 143), 2,
+			TEXT("/Game/VehicleVarietyPack/Meshes/SM_Pickup.SM_Pickup")),
+		Asset(TEXT("BoxTruck"), ESynthVehicleClass::BoxTruck, FVector(732, 306, 319), 2,
+			TEXT("/Game/VehicleVarietyPack/Meshes/SM_Truck_Box.SM_Truck_Box")),
+
 		Entry(TEXT("LightUtility4x4"), ESynthVehicleClass::LightUtility, FVector(480, 210, 195), 2, false,
 			TEXT("desert-tan"), FLinearColor(0.42f, 0.34f, 0.20f), MoveTemp(Utility)),
 		Entry(TEXT("CargoTruck6x6"), ESynthVehicleClass::CargoTruck, FVector(780, 250, 290), 3, false,
@@ -151,7 +185,12 @@ void ASynthCaptureDirector::BeginPlay()
 	if (Catalog.IsEmpty())
 	{
 		Catalog = MakeDefaultCatalog();
-		UE_LOG(LogSynthic, Warning, TEXT("Director: no catalog authored, using %d proxy archetypes."), Catalog.Num());
+		const int32 RealAssets = Algo::CountIf(Catalog,
+			[](const FSynthVehicleSpec& Spec) { return !Spec.Mesh.IsNull(); });
+
+		UE_LOG(LogSynthic, Log,
+			TEXT("Director: default catalog - %d archetypes, %d from real assets, %d proxy."),
+			Catalog.Num(), RealAssets, Catalog.Num() - RealAssets);
 	}
 
 	if (MaxSpeedKph < MinSpeedKph)
