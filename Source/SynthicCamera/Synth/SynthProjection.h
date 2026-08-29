@@ -24,6 +24,22 @@ struct FSynthScreenBox
  * Pure projection helpers. No actors, no world, no side effects - just matrices in,
  * pixels out, so the label geometry can be checked without standing up an engine.
  */
+/**
+ * A projected oriented box: the eight corners in pixels plus their axis-aligned
+ * envelope.
+ *
+ * The corners carry orientation the envelope throws away - which face is toward the
+ * camera, how the vehicle is yawed - which is what a 3D-cuboid annotation needs and
+ * a 2D rectangle cannot express.
+ */
+struct FSynthProjectedBox
+{
+	/** Corner order matches SynthProjection::BoxCornersToWorld: bit 0 = +X, 1 = +Y, 2 = +Z. */
+	TArray<FVector2D, TInlineAllocator<8>> Corners;
+
+	FSynthScreenBox Bounds;
+};
+
 namespace SynthProjection
 {
 	/**
@@ -37,6 +53,10 @@ namespace SynthProjection
 	/** The 8 corners of a local-space box, transformed into world space. */
 	void BoxCornersToWorld(const FTransform& BoxToWorld, const FVector& LocalCenter,
 		const FVector& LocalExtent, TArray<FVector, TInlineAllocator<8>>& OutCorners);
+
+	/** Project all eight corners and their envelope in one pass. */
+	FSynthProjectedBox ProjectOrientedBox(const FMatrix& ViewProj, const FTransform& BoxToWorld,
+		const FVector& LocalCenter, const FVector& LocalExtent, int32 ImageWidth, int32 ImageHeight);
 
 	/**
 	 * Axis-aligned screen bounds of an oriented world-space box. Invalid if any corner

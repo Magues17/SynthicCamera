@@ -111,11 +111,23 @@ private:
 	/** Stretch the mast from the housing down to the road, whatever height it sits at. */
 	void UpdateMastToGround();
 
+	/**
+	 * Fraction of the vehicle's silhouette the camera has an unobstructed line to.
+	 *
+	 * Traces from the lens to sample points on the vehicle's bounds and counts how
+	 * many arrive. 1.0 is a clear view, 0.0 is fully hidden behind something. Both
+	 * the vehicle and the camera are ignored by the trace, so anything hit is by
+	 * definition an occluder.
+	 */
+	float MeasureVisibleFraction(const ASynthVehicle& Vehicle,
+		const FVector& LocalCentre, const FVector& LocalExtent) const;
+
 	void EnsureRenderTarget();
 	void ApplyAmbientLighting();
 	void ResolveRunDirectory();
 	FMatrix BuildViewProjectionMatrix() const;
-	TSharedRef<class FJsonObject> BuildLabel(const ASynthVehicle& Vehicle, const FSynthScreenBox& Box,
+	TSharedRef<class FJsonObject> BuildLabel(const ASynthVehicle& Vehicle,
+		const struct FSynthProjectedBox& Projected, float VisibleFraction,
 		const FString& ImageFileName) const;
 
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")

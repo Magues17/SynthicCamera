@@ -259,6 +259,50 @@ void ASynthSpeedCamera::SetSceneConditions(float InAmbientIntensity, const FStri
 	ApplyAmbientLighting();
 }
 
+float ASynthSpeedCamera::MeasureVisibleFraction(const ASynthVehicle& Vehicle,
+	const FVector& LocalCentre, const FVector& LocalExtent) const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 1.0f;
+	}
+
+	FTransform BoxToWorld;
+	FVector UnusedCentre;
+	FVector UnusedExtent;
+	Vehicle.GetVisualBounds(BoxToWorld, UnusedCentre, UnusedExtent);
+
+	// Eight corners plus the centre. Corners alone would call a vehicle fully hidden
+	// the moment a pole crosses one edge, and the centre alone would miss anything
+	// that clips a flank.
+	//
+	// Sampled just inside the bounds, not on them. The box's lower corners sit exactly
+	// at the ground contact point, so traces aimed at them graze the road deck and come
+	// back blocked - which reported every vehicle as occluded with nothing occluding it.
+	constexpr double SampleInset = 0.88;
+
+	TArray<FVector, TInlineAllocator<8>> Samples;
+	SynthProjection::BoxCornersToWorld(BoxToWorld, LocalCentre, LocalExtent * SampleInset, Samples);
+	Samples.Add(BoxToWorld.TransformPosition(LocalCentre));
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SynthVisibility), /*bTraceComplex*/ false);
+	Params.AddIgnoredActor(this);
+	Params.AddIgnoredActor(&Vehicle);
+
+	const FVector Lens = CaptureComponent->GetComponentLocation();
+	int32 Clear = 0;
+	for (const FVector& Sample : Samples)
+	{
+		if (!World->LineTraceTestByChannel(Lens, Sample, ECC_Visibility, Params))
+		{
+			++Clear;
+		}
+	}
+
+	return static_cast<float>(Clear) / static_cast<float>(Samples.Num());
+}
+
 void ASynthSpeedCamera::EnsureRenderTarget()
 {
 	if (RenderTarget)
@@ -355,8 +399,11 @@ bool ASynthSpeedCamera::CaptureVehicle(ASynthVehicle* Vehicle)
 	FVector LocalExtent;
 	Vehicle->GetVisualBounds(BoxToWorld, LocalCentre, LocalExtent);
 
-	const FSynthScreenBox Box = SynthProjection::OrientedBoxToScreenBounds(
+	const FSynthProjectedBox Projected = SynthProjection::ProjectOrientedBox(
 		BuildViewProjectionMatrix(), BoxToWorld, LocalCentre, LocalExtent, ImageWidth, ImageHeight);
+	const FSynthScreenBox& Box = Projected.Bounds;
+
+	const float VisibleFraction = MeasureVisibleFraction(*Vehicle, LocalCentre, LocalExtent);
 
 	const FString ImageFileName = FString::Printf(TEXT("%s_%06d.png"), *RunName, CaptureCount);
 
@@ -365,23 +412,25 @@ bool ASynthSpeedCamera::CaptureVehicle(ASynthVehicle* Vehicle)
 		return false;	// no image means the label would dangle - drop the whole sample
 	}
 
-	if (!SynthDataset::AppendJsonLine(LabelFilePath, BuildLabel(*Vehicle, Box, ImageFileName)))
+	if (!SynthDataset::AppendJsonLine(LabelFilePath,
+		BuildLabel(*Vehicle, Projected, VisibleFraction, ImageFileName)))
 	{
 		return false;
 	}
 
 	++CaptureCount;
 
-	UE_LOG(LogSynthic, Log, TEXT("Captured %s %s at %.1f km/h -> %s (bbox %s)"),
+	UE_LOG(LogSynthic, Log, TEXT("Captured %s %s at %.1f km/h -> %s (bbox %s, %.0f%% visible)"),
 		*Vehicle->GetSpec().Make, *Vehicle->GetSpec().Model, Vehicle->GetMeasuredSpeedKph(),
-		*ImageFileName, Box.bValid ? TEXT("ok") : TEXT("INVALID"));
+		*ImageFileName, Box.bValid ? TEXT("ok") : TEXT("INVALID"), VisibleFraction * 100.0f);
 
 	return true;
 }
 
 TSharedRef<FJsonObject> ASynthSpeedCamera::BuildLabel(const ASynthVehicle& Vehicle,
-	const FSynthScreenBox& Box, const FString& ImageFileName) const
+	const FSynthProjectedBox& Projected, float VisibleFraction, const FString& ImageFileName) const
 {
+	const FSynthScreenBox& Box = Projected.Bounds;
 	const FSynthVehicleSpec& Spec = Vehicle.GetSpec();
 	const FVector CameraLocation = CaptureComponent->GetComponentLocation();
 	const FVector VehicleLocation = Vehicle.GetActorLocation();
@@ -444,8 +493,48 @@ TSharedRef<FJsonObject> ASynthSpeedCamera::BuildLabel(const ASynthVehicle& Vehic
 		BBox->SetNumberField(TEXT("w"), Box.Width());
 		BBox->SetNumberField(TEXT("h"), Box.Height());
 		Geometry->SetObjectField(TEXT("bbox_xywh"), BBox);
+
+		// The four rectangle corners, clockwise from top-left.
+		TArray<TSharedPtr<FJsonValue>> Rect;
+		const float RectPoints[4][2] = {
+			{ Box.MinX, Box.MinY }, { Box.MaxX, Box.MinY },
+			{ Box.MaxX, Box.MaxY }, { Box.MinX, Box.MaxY } };
+		for (const float(&Point)[2] : RectPoints)
+		{
+			TSharedPtr<FJsonObject> Vertex = MakeShared<FJsonObject>();
+			Vertex->SetNumberField(TEXT("x"), Point[0]);
+			Vertex->SetNumberField(TEXT("y"), Point[1]);
+			Rect.Add(MakeShared<FJsonValueObject>(Vertex));
+		}
+		Geometry->SetArrayField(TEXT("bbox_verts_2d"), Rect);
+	}
+
+	// The eight projected cuboid corners. These keep the orientation the axis-aligned
+	// rectangle discards - which face is toward the lens, how the vehicle is yawed.
+	if (Projected.Corners.Num() == 8)
+	{
+		TArray<TSharedPtr<FJsonValue>> Cuboid;
+		for (const FVector2D& Corner : Projected.Corners)
+		{
+			TSharedPtr<FJsonObject> Vertex = MakeShared<FJsonObject>();
+			Vertex->SetNumberField(TEXT("x"), Corner.X);
+			Vertex->SetNumberField(TEXT("y"), Corner.Y);
+			Cuboid.Add(MakeShared<FJsonValueObject>(Vertex));
+		}
+		Geometry->SetArrayField(TEXT("bbox_verts_3d_projected"), Cuboid);
 	}
 	Root->SetObjectField(TEXT("geometry"), Geometry);
+
+	// Visibility is separate from geometry on purpose: a box can be perfectly correct
+	// while the thing it describes is behind a pole or off the edge of the frame.
+	TSharedPtr<FJsonObject> Vis = MakeShared<FJsonObject>();
+	Vis->SetNumberField(TEXT("visible_fraction"), VisibleFraction);
+	Vis->SetBoolField(TEXT("occluded"), VisibleFraction < 1.0f);
+	Vis->SetBoolField(TEXT("fully_occluded"), VisibleFraction <= 0.0f);
+	Vis->SetBoolField(TEXT("in_frame"), Box.bValid);
+	Vis->SetBoolField(TEXT("truncated"), Box.bClipped);
+	Vis->SetBoolField(TEXT("camera_can_see"), Box.bValid && VisibleFraction > 0.0f);
+	Root->SetObjectField(TEXT("visibility"), Vis);
 
 	TSharedPtr<FJsonObject> CameraJson = MakeShared<FJsonObject>();
 	CameraJson->SetObjectField(TEXT("position"), VectorToJson(CameraLocation));

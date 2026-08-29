@@ -44,10 +44,10 @@ void BoxCornersToWorld(const FTransform& BoxToWorld, const FVector& LocalCenter,
 	}
 }
 
-FSynthScreenBox OrientedBoxToScreenBounds(const FMatrix& ViewProj, const FTransform& BoxToWorld,
+FSynthProjectedBox ProjectOrientedBox(const FMatrix& ViewProj, const FTransform& BoxToWorld,
 	const FVector& LocalCenter, const FVector& LocalExtent, int32 ImageWidth, int32 ImageHeight)
 {
-	FSynthScreenBox Box;
+	FSynthProjectedBox Result;
 
 	TArray<FVector, TInlineAllocator<8>> Corners;
 	BoxCornersToWorld(BoxToWorld, LocalCenter, LocalExtent, Corners);
@@ -62,9 +62,13 @@ FSynthScreenBox OrientedBoxToScreenBounds(const FMatrix& ViewProj, const FTransf
 		FVector2D Pixel;
 		if (!WorldToPixel(ViewProj, Corner, ImageWidth, ImageHeight, Pixel))
 		{
-			return Box;		// bValid stays false: box straddles the near plane
+			// One corner behind the near plane makes the whole envelope meaningless,
+			// so report nothing rather than a plausible-looking partial box.
+			Result.Corners.Reset();
+			return Result;
 		}
 
+		Result.Corners.Add(Pixel);
 		MinX = FMath::Min(MinX, static_cast<float>(Pixel.X));
 		MinY = FMath::Min(MinY, static_cast<float>(Pixel.Y));
 		MaxX = FMath::Max(MaxX, static_cast<float>(Pixel.X));
@@ -74,16 +78,22 @@ FSynthScreenBox OrientedBoxToScreenBounds(const FMatrix& ViewProj, const FTransf
 	const float ImageW = static_cast<float>(ImageWidth);
 	const float ImageH = static_cast<float>(ImageHeight);
 
+	FSynthScreenBox& Box = Result.Bounds;
 	Box.bClipped = (MinX < 0.0f) || (MinY < 0.0f) || (MaxX > ImageW) || (MaxY > ImageH);
-
 	Box.MinX = FMath::Clamp(MinX, 0.0f, ImageW);
 	Box.MinY = FMath::Clamp(MinY, 0.0f, ImageH);
 	Box.MaxX = FMath::Clamp(MaxX, 0.0f, ImageW);
 	Box.MaxY = FMath::Clamp(MaxY, 0.0f, ImageH);
-
-	// Wholly off-image collapses to a zero-area box after clamping.
 	Box.bValid = (Box.Width() > 0.0f) && (Box.Height() > 0.0f);
-	return Box;
+
+	return Result;
+}
+
+FSynthScreenBox OrientedBoxToScreenBounds(const FMatrix& ViewProj, const FTransform& BoxToWorld,
+	const FVector& LocalCenter, const FVector& LocalExtent, int32 ImageWidth, int32 ImageHeight)
+{
+	return ProjectOrientedBox(ViewProj, BoxToWorld, LocalCenter, LocalExtent,
+		ImageWidth, ImageHeight).Bounds;
 }
 
 }	// namespace SynthProjection
