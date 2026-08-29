@@ -10,3 +10,7 @@ Saved/
 *.sdf
 *.VC.db
 *.VC.opendb
+
+# Local verification scratch
+contact_sheet.png
+lighting_check.png
