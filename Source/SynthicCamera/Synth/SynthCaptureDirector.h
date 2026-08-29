@@ -43,9 +43,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic", meta = (ClampMin = "1.0"))
 	float MaxSpeedKph = 110.0f;
 
-	/** How far a vehicle drives before it is recycled, in centimetres. */
+	/**
+	 * How far a vehicle drives before it is recycled, in centimetres. Just past the
+	 * camera plus margin - every extra metre is wall-clock spent driving into empty
+	 * desert after the photo has already been taken.
+	 */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic", meta = (ClampMin = "100.0"))
-	float TravelDistanceCm = 24000.0f;
+	float TravelDistanceCm = 15000.0f;
 
 	/** Lateral spread about the start line, in centimetres - lane position variation. */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic")

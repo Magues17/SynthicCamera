@@ -41,6 +41,24 @@ CAMERA_POSITION = unreal.Vector(1200.0, -700.0, 550.0)
 CAMERA_AIM_POINT = unreal.Vector(-1500.0, 0.0, 150.0)   # mid-lane, roughly bonnet height
 DIRECTOR_POSITION = unreal.Vector(-12000.0, 0.0, 16.0)   # on the road deck, not in it
 
+# --- Run parameters -------------------------------------------------------------
+CAMERA_SETTINGS = {
+    "image_width": 1280,
+    "image_height": 720,
+    "field_of_view_deg": 50.0,
+}
+
+RUN_SETTINGS = {
+    "num_passes": 20,
+    "random_seed": 1337,
+    "min_speed_kph": 40.0,
+    "max_speed_kph": 110.0,
+    # Start line to camera is 13200cm; stop just past it rather than driving on into
+    # empty desert, which is pure wall-clock after the photo is already taken.
+    "travel_distance_cm": 15000.0,
+    "lane_jitter_cm": 150.0,
+}
+
 SAND = (0.76, 0.65, 0.45)
 ASPHALT = (0.06, 0.06, 0.07)
 LINE_WHITE = (0.85, 0.85, 0.82)
@@ -95,6 +113,9 @@ def build_camera():
     camera = spawn_synth_actor("/Script/SynthicCamera.SynthSpeedCamera", CAMERA_POSITION)
     camera.set_actor_label("SpeedCamera")
 
+    for name, value in CAMERA_SETTINGS.items():
+        camera.set_editor_property(name, value)
+
     aim = unreal.MathLibrary.find_look_at_rotation(CAMERA_POSITION, CAMERA_AIM_POINT)
 
     capture = camera.get_editor_property("capture_component")
@@ -115,10 +136,19 @@ def build_camera():
 
 
 def build_director():
-    """Start line at the far end, forward vector (+X) pointing down the road."""
+    """Start line at the far end, forward vector (+X) pointing down the road.
+
+    Run parameters are set here rather than left to the C++ defaults: a placed actor
+    serialises whatever the defaults were the day it was spawned, so a level built
+    last month silently ignores today's default and the two disagree with no warning.
+    """
     director = spawn_synth_actor("/Script/SynthicCamera.SynthCaptureDirector",
                                  DIRECTOR_POSITION, unreal.Rotator(0, 0, 0))
     director.set_actor_label("CaptureDirector")
+
+    for name, value in RUN_SETTINGS.items():
+        director.set_editor_property(name, value)
+
     return director
 
 
