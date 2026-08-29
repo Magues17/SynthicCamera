@@ -112,20 +112,23 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 	Apc.Add(Box(FVector(-30, 0, 202), FVector(600, 232, 68)));			// upper hull
 	Apc.Add(Box(FVector(-80, 0, 246), FVector(150, 148, 44)));			// cupola
 
+	// Tracks sit at the vehicle's full width with the hull narrower and resting on
+	// top, so the running gear reads as track runs rather than as skids poking out
+	// from under a wider body. Tracked versus wheeled is a primary class cue.
 	TArray<FSynthVehiclePart> Ifv;
-	Ifv.Add(Box(FVector(0, -125, 46), FVector(620, 68, 92), 0.34f));	// track run
-	Ifv.Add(Box(FVector(0,  125, 46), FVector(620, 68, 92), 0.34f));
-	Ifv.Add(Box(FVector(0, 0, 136), FVector(600, 296, 92)));			// hull
-	Ifv.Add(Box(FVector(-20, 0, 200), FVector(470, 246, 58)));			// upper hull
-	Ifv.Add(Box(FVector(-60, 0, 232), FVector(200, 178, 56)));			// turret
-	Ifv.Add(Barrel(FVector(120, 0, 236), 14.0f, 320.0f));
+	Ifv.Add(Box(FVector(0, -108, 52), FVector(640, 104, 104), 0.40f));	// track run
+	Ifv.Add(Box(FVector(0,  108, 52), FVector(640, 104, 104), 0.40f));
+	Ifv.Add(Box(FVector(0, 0, 146), FVector(590, 214, 88)));			// hull
+	Ifv.Add(Box(FVector(-20, 0, 206), FVector(460, 196, 44)));			// upper hull
+	Ifv.Add(Box(FVector(-55, 0, 236), FVector(210, 168, 52)));			// turret
+	Ifv.Add(Barrel(FVector(135, 0, 240), 14.0f, 330.0f));
 
 	TArray<FSynthVehiclePart> Mbt;
-	Mbt.Add(Box(FVector(0, -145, 50), FVector(900, 78, 100), 0.34f));	// track run
-	Mbt.Add(Box(FVector(0,  145, 50), FVector(900, 78, 100), 0.34f));
-	Mbt.Add(Box(FVector(0, 0, 140), FVector(880, 344, 82)));			// hull
-	Mbt.Add(Box(FVector(-70, 0, 208), FVector(330, 258, 64)));			// turret
-	Mbt.Add(Barrel(FVector(190, 0, 212), 22.0f, 430.0f));				// main gun
+	Mbt.Add(Box(FVector(0, -140, 58), FVector(920, 90, 116), 0.40f));	// track run
+	Mbt.Add(Box(FVector(0,  140, 58), FVector(920, 90, 116), 0.40f));
+	Mbt.Add(Box(FVector(0, 0, 152), FVector(860, 262, 72)));			// hull
+	Mbt.Add(Box(FVector(-60, 0, 208), FVector(340, 232, 56)));			// turret
+	Mbt.Add(Barrel(FVector(200, 0, 212), 24.0f, 450.0f));				// main gun
 
 	return {
 		Entry(TEXT("LightUtility4x4"), ESynthVehicleClass::LightUtility, FVector(480, 210, 195), 2, false,
