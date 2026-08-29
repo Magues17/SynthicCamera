@@ -18,6 +18,7 @@ Layout, all centimetres, traffic travels along +X:
                         ^ trigger + aim point at X = -1500
 """
 
+import os
 import random
 import sys
 
@@ -96,6 +97,7 @@ def spawn_synth_actor(class_path, location, rotation=None):
 
 
 VEHICLE_BODY_MATERIAL = "M_VehicleBody"
+AMBIENT_VOLUME_LABEL = "PPV_MatchCaptures"
 
 
 
@@ -132,6 +134,89 @@ def make_vehicle_body_material(folder="/Game/Materials"):
     unreal.EditorAssetLibrary.save_asset(path)
     lh.log(f"created {path}")
     return material
+
+
+def match_viewport_to_captures():
+    """Give the editor and play views the same ambient fill the captures get.
+
+    The ambient cubemap lives on the capture component's post-process settings, so
+    without this the viewport renders the scene with a lighting model the dataset
+    never sees - shadows read black by eye while the actual output is fine, which
+    makes judging the scene visually worthless.
+    """
+    for actor in _editor_actor.get_all_level_actors():
+        if actor.get_actor_label() == AMBIENT_VOLUME_LABEL:
+            _editor_actor.destroy_actor(actor)
+
+    volume = _editor_actor.spawn_actor_from_class(
+        unreal.PostProcessVolume, unreal.Vector(0.0, 0.0, 0.0), unreal.Rotator(0, 0, 0))
+    volume.set_actor_label(AMBIENT_VOLUME_LABEL)
+    volume.set_editor_property("unbound", True)
+
+    # /Engine/ content is not in the project asset registry until it is scanned, so
+    # load_asset on an engine path fails outright without this.
+    unreal.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(
+        ["/Engine/MapTemplates/Sky"], True)
+
+    cubemap = unreal.EditorAssetLibrary.load_asset(
+        "/Engine/MapTemplates/Sky/DaylightAmbientCubemap")
+    if cubemap is None:
+        lh.log("WARNING ambient cubemap missing; viewport will not match captures")
+        return
+
+    settings = volume.get_editor_property("settings")
+    settings.set_editor_property("ambient_cubemap", cubemap)
+    settings.set_editor_property("override_ambient_cubemap_intensity", True)
+    settings.set_editor_property("ambient_cubemap_intensity", CAMERA_SETTINGS["ambient_intensity"])
+    volume.set_editor_property("settings", settings)
+    lh.log("viewport ambient matched to captures")
+
+
+def remove_stray_directional_lights():
+    """Delete every directional light except the template's own.
+
+    An earlier version of this script spawned a fill light here, and when that
+    approach was abandoned its cleanup went with it - leaving the light stranded in
+    the saved level, where prune_props keeps it because it keeps all lighting. UE
+    then picks a main light by brightness for fog, translucency and volumetrics,
+    which quietly changes how the scene renders and is exactly the sort of thing
+    that never shows up as an error.
+    """
+    removed = []
+    for actor in _editor_actor.get_all_level_actors():
+        if actor.get_class().get_name() != "DirectionalLight":
+            continue
+        if actor.get_actor_label() == "DirectionalLight":
+            continue                                # the template's sun; keep it
+        removed.append(actor.get_actor_label())
+        _editor_actor.destroy_actor(actor)
+
+    for label in removed:
+        lh.log(f"removed stray directional light: {label}")
+    return removed
+
+
+def report_directional_lights():
+    """Audit directional lights to Saved/lights_out.txt.
+
+    More than one and UE picks a main light arbitrarily for fog, translucency and
+    volumetrics, which silently changes how the scene renders. Written to a file
+    because unreal.log does not reliably reach commandlet stdout.
+    """
+    lights = [a for a in _editor_actor.get_all_level_actors()
+              if a.get_class().get_name() == "DirectionalLight"]
+
+    lines = [f"directional_light_count={len(lights)}"]
+    for light in lights:
+        loc = light.get_actor_location()
+        lines.append(f"  {light.get_actor_label()}  ({loc.x:.0f},{loc.y:.0f},{loc.z:.0f})")
+    if len(lights) > 1:
+        lines.append("WARNING more than one - UE will pick a main light by brightness")
+
+    out = os.path.join(unreal.SystemLibrary.get_project_directory(), "Saved", "lights_out.txt")
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(chr(10).join(lines))
+    return lights
 
 
 def build_ground(sand, rock):
@@ -230,8 +315,11 @@ def main():
 
     build_ground(sand, rock)
     build_road(asphalt, line)
+    remove_stray_directional_lights()
+    match_viewport_to_captures()
     build_camera()
     build_director()
+    report_directional_lights()
 
     # Off to the side, so pressing Play does not drop the pawn into traffic.
     _editor_actor.spawn_actor_from_class(

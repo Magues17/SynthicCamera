@@ -9,6 +9,7 @@ namespace
 {
 	/** Engine primitive used for proxy geometry: a 100uu cube centred on its origin. */
 	const TCHAR* const ProxyCubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
+	const TCHAR* const ProxyCylinderPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
 	/** Built by build_desert.py; exposes a "Color" parameter the livery can drive. */
 	const TCHAR* const ProxyMaterialPath = TEXT("/Game/Materials/M_VehicleBody.M_VehicleBody");
 	const TCHAR* const FallbackMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
@@ -43,21 +44,118 @@ void ASynthVehicle::ApplySpec(const FSynthVehicleSpec& InSpec)
 		VehicleMesh->SetRelativeLocation(FVector::ZeroVector);
 		VehicleMesh->SetRelativeScale3D(FVector::OneVector);
 	}
+	else if (Spec.Parts.Num() > 0)
+	{
+		BuildAssembledGeometry();
+	}
 	else
 	{
 		BuildProxyGeometry();
 	}
 
-	if (UMaterialInterface* Base = VehicleMesh->GetMaterial(0))
+	if (VehicleMesh->GetStaticMesh())
 	{
-		UMaterialInstanceDynamic* Dynamic = VehicleMesh->CreateAndSetMaterialInstanceDynamic(0);
-		if (Dynamic)
+		ApplyLivery(*VehicleMesh, 1.0f);
+	}
+
+	CacheVisualBounds();
+}
+
+void ASynthVehicle::BuildAssembledGeometry()
+{
+	// The single-box fallback must go, or it sits inside the assembly as a slab that
+	// fills the silhouette and makes every class look the same again.
+	VehicleMesh->SetStaticMesh(nullptr);
+
+	for (UStaticMeshComponent* Old : PartMeshes)
+	{
+		if (Old)
 		{
-			// ponytail: proxy material exposes "Color"; a real asset may name it otherwise,
-			// in which case this is a harmless no-op until the catalog names the parameter.
-			Dynamic->SetVectorParameterValue(TEXT("Color"), Spec.LiveryColor);
+			Old->DestroyComponent();
 		}
 	}
+	PartMeshes.Reset();
+
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, ProxyCubePath);
+	UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, ProxyCylinderPath);
+	if (!Cube || !Cylinder)
+	{
+		UE_LOG(LogSynthic, Error,
+			TEXT("BuildAssembledGeometry: engine primitives missing; %s %s falls back to a box."),
+			*Spec.Make, *Spec.Model);
+		BuildProxyGeometry();
+		return;
+	}
+
+	for (int32 Index = 0; Index < Spec.Parts.Num(); ++Index)
+	{
+		const FSynthVehiclePart& Part = Spec.Parts[Index];
+
+		UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(this);
+		Component->SetupAttachment(VehicleRoot);
+		Component->RegisterComponent();
+
+		Component->SetStaticMesh(Part.Shape == ESynthPartShape::Cylinder ? Cylinder : Cube);
+
+		// Scale is applied in the component's own space, before the rotation, so a
+		// cylinder is sized as (diameter, diameter, length) and then laid on its side
+		// to become a wheel.
+		Component->SetRelativeScale3D(Part.SizeCm / ProxyCubeSizeCm);
+		Component->SetRelativeRotation(Part.Rotation);
+		Component->SetRelativeLocation(Part.OffsetCm);
+
+		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Component->SetMobility(EComponentMobility::Movable);
+
+		ApplyLivery(*Component, Part.ColorScale);
+		PartMeshes.Add(Component);
+	}
+}
+
+void ASynthVehicle::ApplyLivery(UStaticMeshComponent& Component, float ColorScale) const
+{
+	if (UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, ProxyMaterialPath))
+	{
+		Component.SetMaterial(0, Base);
+	}
+
+	if (UMaterialInstanceDynamic* Dynamic = Component.CreateAndSetMaterialInstanceDynamic(0))
+	{
+		Dynamic->SetVectorParameterValue(TEXT("Color"), Spec.LiveryColor * ColorScale);
+	}
+}
+
+void ASynthVehicle::CacheVisualBounds()
+{
+	if (Spec.Parts.Num() == 0)
+	{
+		// Single mesh: its own bounds, expressed relative to the root.
+		if (const UStaticMesh* Mesh = VehicleMesh->GetStaticMesh())
+		{
+			const FBoxSphereBounds Local = Mesh->GetBounds();
+			const FVector Scale = VehicleMesh->GetRelativeScale3D();
+			LocalBoundsCentre = VehicleMesh->GetRelativeLocation() + (Local.Origin * Scale);
+			LocalBoundsExtent = Local.BoxExtent * Scale;
+			return;
+		}
+
+		LocalBoundsCentre = FVector(0.0, 0.0, Spec.DimensionsCm.Z * 0.5);
+		LocalBoundsExtent = Spec.DimensionsCm * 0.5;
+		return;
+	}
+
+	// Parts are authored in root-local space, so the union of their boxes in that
+	// space is exact - no need to go through world space and back.
+	FBox Bounds(ForceInit);
+	for (const FSynthVehiclePart& Part : Spec.Parts)
+	{
+		const FVector Half = Part.SizeCm * 0.5;
+		const FBox Local(-Half, Half);
+		Bounds += Local.TransformBy(FTransform(Part.Rotation, Part.OffsetCm));
+	}
+
+	LocalBoundsCentre = Bounds.GetCenter();
+	LocalBoundsExtent = Bounds.GetExtent();
 }
 
 void ASynthVehicle::BuildProxyGeometry()
@@ -137,16 +235,9 @@ void ASynthVehicle::Tick(float DeltaSeconds)
 
 void ASynthVehicle::GetVisualBounds(FTransform& OutBoxToWorld, FVector& OutLocalCenter, FVector& OutLocalExtent) const
 {
-	OutBoxToWorld = VehicleMesh->GetComponentTransform();
-
-	if (const UStaticMesh* Mesh = VehicleMesh->GetStaticMesh())
-	{
-		const FBoxSphereBounds Local = Mesh->GetBounds();
-		OutLocalCenter = Local.Origin;
-		OutLocalExtent = Local.BoxExtent;
-		return;
-	}
-
-	OutLocalCenter = FVector::ZeroVector;
-	OutLocalExtent = Spec.DimensionsCm * 0.5;
+	// Root transform, not the mesh's: parts are authored relative to the root, and the
+	// cached bounds already cover all of them.
+	OutBoxToWorld = VehicleRoot->GetComponentTransform();
+	OutLocalCenter = LocalBoundsCentre;
+	OutLocalExtent = LocalBoundsExtent;
 }

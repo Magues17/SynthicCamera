@@ -15,13 +15,65 @@ ASynthCaptureDirector::ASynthCaptureDirector()
 	SetRootComponent(CreateDefaultSubobject<USceneComponent>(TEXT("DirectorRoot")));
 }
 
+namespace
+{
+	/** A box part. Offsets are from the ground contact point at the actor origin. */
+	FSynthVehiclePart Box(FVector Offset, FVector Size, float Tint = 1.0f)
+	{
+		FSynthVehiclePart Part;
+		Part.Shape = ESynthPartShape::Box;
+		Part.OffsetCm = Offset;
+		Part.SizeCm = Size;
+		Part.ColorScale = Tint;
+		return Part;
+	}
+
+	/**
+	 * A wheel: a cylinder rolled onto its side so its axis runs across the vehicle.
+	 * Scale is applied before rotation, so the size is given as
+	 * (diameter, diameter, width) and the roll then lays it down.
+	 */
+	FSynthVehiclePart Wheel(FVector Centre, float Diameter, float Width)
+	{
+		FSynthVehiclePart Part;
+		Part.Shape = ESynthPartShape::Cylinder;
+		Part.OffsetCm = Centre;
+		Part.SizeCm = FVector(Diameter, Diameter, Width);
+		Part.Rotation = FRotator(0.0, 0.0, 90.0);
+		Part.ColorScale = 0.32f;		// rubber reads far darker than bodywork
+		return Part;
+	}
+
+	/** A gun barrel: a cylinder pitched to lie along the vehicle's length. */
+	FSynthVehiclePart Barrel(FVector Centre, float Diameter, float Length)
+	{
+		FSynthVehiclePart Part;
+		Part.Shape = ESynthPartShape::Cylinder;
+		Part.OffsetCm = Centre;
+		Part.SizeCm = FVector(Diameter, Diameter, Length);
+		Part.Rotation = FRotator(90.0, 0.0, 0.0);
+		Part.ColorScale = 0.55f;
+		return Part;
+	}
+
+	void AddWheelPair(TArray<FSynthVehiclePart>& Parts, float X, float HalfTrack,
+		float Diameter, float Width)
+	{
+		Parts.Add(Wheel(FVector(X, -HalfTrack, Diameter * 0.5), Diameter, Width));
+		Parts.Add(Wheel(FVector(X,  HalfTrack, Diameter * 0.5), Diameter, Width));
+	}
+}
+
 TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 {
-	// Proxy stand-ins with real-world dimensions. Make is deliberately "PROXY" so no
-	// one mistakes a box for a real vehicle signature in the output. Point Spec.Mesh at
-	// an imported asset to promote an entry to the real thing - no code change needed.
-	auto Entry = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims, int32 Axles, bool bTracked,
-		const TCHAR* Livery, FLinearColor Colour)
+	// Assembled silhouettes rather than single boxes. Class is mostly carried by
+	// shape - turret, barrel, tracks, cab position - and two boxes of different
+	// proportions give a model nothing it could carry across to real footage.
+	//
+	// Still proxies: no suspension detail, no stowage, no surface texture. Make stays
+	// PROXY so nothing mistakes one for a real vehicle signature.
+	auto Entry = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims, int32 Axles,
+		bool bTracked, const TCHAR* Livery, FLinearColor Colour, TArray<FSynthVehiclePart> Parts)
 	{
 		FSynthVehicleSpec Spec;
 		Spec.Make = TEXT("PROXY");
@@ -32,22 +84,60 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 		Spec.bTracked = bTracked;
 		Spec.LiveryName = Livery;
 		Spec.LiveryColor = Colour;
+		Spec.Parts = MoveTemp(Parts);
 		return Spec;
 	};
 
-	// Distinct liveries so the colour field in the label is actually present in the
-	// pixels. Identical colours would make it a field a model can only learn to ignore.
+	TArray<FSynthVehiclePart> Utility;
+	AddWheelPair(Utility, 155.0f, 88.0f, 80.0f, 30.0f);
+	AddWheelPair(Utility, -155.0f, 88.0f, 80.0f, 30.0f);
+	Utility.Add(Box(FVector(0, 0, 88), FVector(430, 180, 66)));			// chassis
+	Utility.Add(Box(FVector(145, 0, 138), FVector(150, 172, 46)));		// bonnet
+	Utility.Add(Box(FVector(-40, 0, 158), FVector(170, 168, 74)));		// cab
+
+	TArray<FSynthVehiclePart> Truck;
+	AddWheelPair(Truck, 250.0f, 105.0f, 110.0f, 40.0f);
+	AddWheelPair(Truck, -140.0f, 105.0f, 110.0f, 40.0f);
+	AddWheelPair(Truck, -280.0f, 105.0f, 110.0f, 40.0f);
+	Truck.Add(Box(FVector(0, 0, 118), FVector(700, 215, 56)));			// chassis rail
+	Truck.Add(Box(FVector(270, 0, 208), FVector(200, 228, 128)));		// cab
+	Truck.Add(Box(FVector(-120, 0, 216), FVector(420, 236, 145), 0.88f));	// cargo bed
+
+	TArray<FSynthVehiclePart> Apc;
+	AddWheelPair(Apc, 280.0f, 122.0f, 120.0f, 45.0f);
+	AddWheelPair(Apc, 90.0f, 122.0f, 120.0f, 45.0f);
+	AddWheelPair(Apc, -100.0f, 122.0f, 120.0f, 45.0f);
+	AddWheelPair(Apc, -290.0f, 122.0f, 120.0f, 45.0f);
+	Apc.Add(Box(FVector(0, 0, 126), FVector(720, 262, 104)));			// hull
+	Apc.Add(Box(FVector(-30, 0, 202), FVector(600, 232, 68)));			// upper hull
+	Apc.Add(Box(FVector(-80, 0, 246), FVector(150, 148, 44)));			// cupola
+
+	TArray<FSynthVehiclePart> Ifv;
+	Ifv.Add(Box(FVector(0, -125, 46), FVector(620, 68, 92), 0.34f));	// track run
+	Ifv.Add(Box(FVector(0,  125, 46), FVector(620, 68, 92), 0.34f));
+	Ifv.Add(Box(FVector(0, 0, 136), FVector(600, 296, 92)));			// hull
+	Ifv.Add(Box(FVector(-20, 0, 200), FVector(470, 246, 58)));			// upper hull
+	Ifv.Add(Box(FVector(-60, 0, 232), FVector(200, 178, 56)));			// turret
+	Ifv.Add(Barrel(FVector(120, 0, 236), 14.0f, 320.0f));
+
+	TArray<FSynthVehiclePart> Mbt;
+	Mbt.Add(Box(FVector(0, -145, 50), FVector(900, 78, 100), 0.34f));	// track run
+	Mbt.Add(Box(FVector(0,  145, 50), FVector(900, 78, 100), 0.34f));
+	Mbt.Add(Box(FVector(0, 0, 140), FVector(880, 344, 82)));			// hull
+	Mbt.Add(Box(FVector(-70, 0, 208), FVector(330, 258, 64)));			// turret
+	Mbt.Add(Barrel(FVector(190, 0, 212), 22.0f, 430.0f));				// main gun
+
 	return {
 		Entry(TEXT("LightUtility4x4"), ESynthVehicleClass::LightUtility, FVector(480, 210, 195), 2, false,
-			TEXT("desert-tan"), FLinearColor(0.42f, 0.34f, 0.20f)),
+			TEXT("desert-tan"), FLinearColor(0.42f, 0.34f, 0.20f), MoveTemp(Utility)),
 		Entry(TEXT("CargoTruck6x6"), ESynthVehicleClass::CargoTruck, FVector(780, 250, 290), 3, false,
-			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f)),
+			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f), MoveTemp(Truck)),
 		Entry(TEXT("WheeledAPC8x8"), ESynthVehicleClass::APC, FVector(780, 290, 270), 4, false,
-			TEXT("nato-green"), FLinearColor(0.13f, 0.20f, 0.14f)),
+			TEXT("nato-green"), FLinearColor(0.13f, 0.20f, 0.14f), MoveTemp(Apc)),
 		Entry(TEXT("TrackedIFV"), ESynthVehicleClass::IFV, FVector(660, 320, 260), 0, true,
-			TEXT("sand-grey"), FLinearColor(0.38f, 0.35f, 0.28f)),
+			TEXT("sand-grey"), FLinearColor(0.38f, 0.35f, 0.28f), MoveTemp(Ifv)),
 		Entry(TEXT("MainBattleTank"), ESynthVehicleClass::MBT, FVector(990, 370, 245), 0, true,
-			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f))
+			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f), MoveTemp(Mbt))
 	};
 }
 

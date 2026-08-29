@@ -110,6 +110,11 @@ ASynthSpeedCamera::ASynthSpeedCamera()
 	HousingMesh->SetupAttachment(CaptureComponent);
 	HousingMesh->SetRelativeLocation(FVector(-35.0, 0.0, 0.0));
 	HousingMesh->SetRelativeScale3D(FVector(0.70, 0.30, 0.30));
+
+	// Rides on the capture point, so it tracks the trip plane wherever the aim moves.
+	TripPlaneMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TripPlaneMesh"));
+	TripPlaneMesh->SetupAttachment(CapturePoint);
+	TripPlaneMesh->SetRelativeScale3D(FVector(0.04, 9.0, 3.2));
 }
 
 void ASynthSpeedCamera::OnConstruction(const FTransform& Transform)
@@ -120,6 +125,8 @@ void ASynthSpeedCamera::OnConstruction(const FTransform& Transform)
 	// re-stretches whenever someone drags the camera up or down its pole.
 	MakeProp(*MastMesh);
 	MakeProp(*HousingMesh);
+	MakeProp(*TripPlaneMesh);
+	TripPlaneMesh->SetVisibility(bShowTripPlane);
 	UpdateMastToGround();
 }
 
@@ -149,6 +156,7 @@ void ASynthSpeedCamera::BeginPlay()
 	EnsureRenderTarget();
 
 	CaptureComponent->FOVAngle = FieldOfViewDeg;
+	TripPlaneMesh->SetVisibility(bShowTripPlane);
 	ApplyAmbientLighting();
 
 	for (TActorIterator<ADirectionalLight> It(GetWorld()); It; ++It)

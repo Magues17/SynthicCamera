@@ -16,6 +16,46 @@ enum class ESynthVehicleClass : uint8
 	MBT				UMETA(DisplayName = "MBT")				// main battle tank
 };
 
+/** Primitive a vehicle part is built from. */
+UENUM(BlueprintType)
+enum class ESynthPartShape : uint8
+{
+	Box			UMETA(DisplayName = "Box"),
+	Cylinder	UMETA(DisplayName = "Cylinder")
+};
+
+/**
+ * One piece of a vehicle: a hull, a cab, a wheel, a gun barrel.
+ *
+ * Composite geometry rather than a single box because silhouette is most of what
+ * separates these classes. A tank and a cargo truck differ by turret, barrel and
+ * tracks; as two boxes they differ only in dimensions, and a model trained on that
+ * learns proportions rather than anything it could carry over to real footage.
+ *
+ * Offsets are from the actor origin, which sits at the ground contact point.
+ */
+USTRUCT(BlueprintType)
+struct FSynthVehiclePart
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Synthic")
+	ESynthPartShape Shape = ESynthPartShape::Box;
+
+	UPROPERTY(EditAnywhere, Category = "Synthic")
+	FVector OffsetCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, Category = "Synthic")
+	FVector SizeCm = FVector(100.0, 100.0, 100.0);
+
+	UPROPERTY(EditAnywhere, Category = "Synthic")
+	FRotator Rotation = FRotator::ZeroRotator;
+
+	/** Multiplier on the livery colour. Wheels and tracks sit darker than bodywork. */
+	UPROPERTY(EditAnywhere, Category = "Synthic")
+	float ColorScale = 1.0f;
+};
+
 /**
  * Ranges the camera install is drawn from, in centimetres and degrees.
  *
@@ -93,9 +133,17 @@ struct FSynthVehicleSpec
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Geometry")
 	bool bTracked = false;
 
-	/** Null = build a proxy box from DimensionsCm. Set this to swap in a real asset. */
+	/**
+	 * Precedence: a real Mesh wins; otherwise Parts are assembled; otherwise a single
+	 * box from DimensionsCm. Pointing this at an imported asset promotes an entry to
+	 * the real thing without touching code.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TSoftObjectPtr<UStaticMesh> Mesh;
+
+	/** Assembled silhouette. Empty falls back to one box sized by DimensionsCm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
+	TArray<FSynthVehiclePart> Parts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	FLinearColor LiveryColor = FLinearColor(0.21f, 0.22f, 0.15f);

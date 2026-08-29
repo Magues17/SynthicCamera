@@ -59,8 +59,17 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 private:
-	/** Scale a unit-cube proxy to the spec's dimensions when no real mesh is supplied. */
+	/** Assemble Spec.Parts into child components. */
+	void BuildAssembledGeometry();
+
+	/** Scale a unit-cube proxy to the spec's dimensions when there are no parts. */
 	void BuildProxyGeometry();
+
+	/** Tint a component from the livery, scaled for wheels and tracks. */
+	void ApplyLivery(UStaticMeshComponent& Component, float ColorScale) const;
+
+	/** Cache local-space bounds covering every part, for the label's bounding box. */
+	void CacheVisualBounds();
 
 
 	/**
@@ -72,8 +81,17 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<USceneComponent> VehicleRoot;
 
+	/** Single-box fallback. Unused once Parts are supplied. */
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<UStaticMeshComponent> VehicleMesh;
+
+	/** Components built from Spec.Parts, rebuilt on every ApplySpec. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> PartMeshes;
+
+	/** Union of every part in root-local space - what the 2D box is projected from. */
+	FVector LocalBoundsCentre = FVector::ZeroVector;
+	FVector LocalBoundsExtent = FVector::ZeroVector;
 
 	UPROPERTY(EditAnywhere, Category = "Synthic")
 	FSynthVehicleSpec Spec;

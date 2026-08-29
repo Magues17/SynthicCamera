@@ -95,6 +95,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Capture", meta = (ClampMin = "0.0"))
 	float AmbientIntensity = 1.0f;
 
+	/**
+	 * Draw the trip line across the carriageway. Debug scaffolding: it shows exactly
+	 * where the shutter fires. Safe to leave on - the marker is hidden from scene
+	 * captures, so it cannot reach the dataset either way.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Capture")
+	bool bShowTripPlane = true;
+
 	/** Leave empty to name the run from the wall clock at BeginPlay. */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Capture")
 	FString RunName;
@@ -133,6 +141,10 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<UStaticMeshComponent> HousingMesh;
+
+	/** Visual marker for the trip plane. Never seen by the capture. */
+	UPROPERTY(VisibleAnywhere, Category = "Synthic")
+	TObjectPtr<UStaticMeshComponent> TripPlaneMesh;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> RenderTarget;
