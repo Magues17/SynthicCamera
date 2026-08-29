@@ -7,11 +7,13 @@
 
 #include "Camera/CameraTypes.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/ExponentialHeightFog.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
@@ -49,6 +51,31 @@ namespace
 		return true;
 	}
 
+	/** Road deck top, from build_desert.py: 6cm centre + 10cm half-thickness. */
+	constexpr double RoadDeckZ = 16.0;
+	constexpr float ProxyCubeSizeCm = 100.0f;
+
+	/** Dress a prop component: engine cube, no collision, invisible to captures. */
+	void MakeProp(UStaticMeshComponent& Component)
+	{
+		if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+		{
+			Component.SetStaticMesh(Cube);
+		}
+		if (UMaterialInterface* Grey = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+		{
+			Component.SetMaterial(0, Grey);
+		}
+
+		Component.SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Component.SetMobility(EComponentMobility::Movable);
+
+		// The housing occupies the same point as the lens. Without this it would be
+		// the only thing in every single frame of the dataset.
+		Component.bHiddenInSceneCapture = true;
+	}
+
 	TSharedPtr<FJsonObject> VectorToJson(const FVector& V)
 	{
 		TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
@@ -74,6 +101,34 @@ ASynthSpeedCamera::ASynthSpeedCamera()
 
 	CapturePoint = CreateDefaultSubobject<USceneComponent>(TEXT("CapturePoint"));
 	CapturePoint->SetupAttachment(Root);
+
+	MastMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MastMesh"));
+	MastMesh->SetupAttachment(Root);
+
+	// Housing hangs off the capture component so it aims wherever the lens does.
+	HousingMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HousingMesh"));
+	HousingMesh->SetupAttachment(CaptureComponent);
+	HousingMesh->SetRelativeLocation(FVector(-35.0, 0.0, 0.0));
+	HousingMesh->SetRelativeScale3D(FVector(0.70, 0.30, 0.30));
+}
+
+void ASynthSpeedCamera::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// Runs in the editor too, so the mast looks right the moment the level opens and
+	// re-stretches whenever someone drags the camera up or down its pole.
+	MakeProp(*MastMesh);
+	MakeProp(*HousingMesh);
+	UpdateMastToGround();
+}
+
+void ASynthSpeedCamera::UpdateMastToGround()
+{
+	const double HeightAboveRoad = FMath::Max(GetActorLocation().Z - RoadDeckZ, 50.0);
+
+	MastMesh->SetRelativeScale3D(FVector(0.22, 0.22, HeightAboveRoad / ProxyCubeSizeCm));
+	MastMesh->SetRelativeLocation(FVector(0.0, 0.0, -HeightAboveRoad * 0.5));
 }
 
 void ASynthSpeedCamera::PostInitializeComponents()
@@ -183,6 +238,10 @@ void ASynthSpeedCamera::PlaceAt(const FVector& Position, const FVector& AimPoint
 
 	FieldOfViewDeg = FieldOfView;
 	CaptureComponent->FOVAngle = FieldOfView;
+
+	// Pose randomisation changes the pole height every pass, so the mast has to be
+	// re-cut to still reach the road.
+	UpdateMastToGround();
 }
 
 void ASynthSpeedCamera::SetSceneConditions(float InAmbientIntensity, const FString& InWeatherName)

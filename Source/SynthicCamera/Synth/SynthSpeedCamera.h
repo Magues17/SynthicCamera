@@ -7,6 +7,7 @@
 class ADirectionalLight;
 class AExponentialHeightFog;
 class ASynthVehicle;
+class UStaticMeshComponent;
 class UTextureCube;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
@@ -43,6 +44,7 @@ public:
 	const FVector& GetInstallOrigin() const { return InstallOrigin; }
 
 protected:
+	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -98,6 +100,9 @@ public:
 	FString RunName;
 
 private:
+	/** Stretch the mast from the housing down to the road, whatever height it sits at. */
+	void UpdateMastToGround();
+
 	void EnsureRenderTarget();
 	void ApplyAmbientLighting();
 	void ResolveRunDirectory();
@@ -114,6 +119,20 @@ private:
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<USceneComponent> CapturePoint;
+
+	/**
+	 * Mast and housing, so the install is actually visible in the level - a bare
+	 * capture component shows as nothing at all in the viewport.
+	 *
+	 * Both are children of the camera rather than scenery placed beside it, so they
+	 * follow it when the pose is randomised. Both are hidden from scene captures: the
+	 * housing sits exactly where the lens is and would otherwise fill every frame.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Synthic")
+	TObjectPtr<UStaticMeshComponent> MastMesh;
+
+	UPROPERTY(VisibleAnywhere, Category = "Synthic")
+	TObjectPtr<UStaticMeshComponent> HousingMesh;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> RenderTarget;
