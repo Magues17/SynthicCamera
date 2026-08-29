@@ -6,7 +6,6 @@
 
 class ADirectionalLight;
 class ASynthVehicle;
-class UBoxComponent;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 struct FSynthScreenBox;
@@ -35,10 +34,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
-
-	UFUNCTION()
-	void OnVehicleEnteredTrigger(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
-		UPrimitiveComponent* OtherComponent, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& Sweep);
+	virtual void Tick(float DeltaSeconds) override;
 
 public:
 	/** Capture and label a single pass. Public so a test or the director can force one. */
@@ -69,9 +65,12 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<USceneCaptureComponent2D> CaptureComponent;
 
-	/** Placed across the carriageway; entering it is what fires a capture. */
+	/**
+	 * Defines the trip line: its location is a point on the plane and its forward vector
+	 * is the plane normal. Place it across the carriageway pointing along the traffic.
+	 */
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
-	TObjectPtr<UBoxComponent> TriggerVolume;
+	TObjectPtr<USceneComponent> CapturePoint;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> RenderTarget;
@@ -79,8 +78,11 @@ private:
 	UPROPERTY(Transient)
 	TWeakObjectPtr<ADirectionalLight> SunLight;
 
-	/** One sample per pass: a lingering overlap must not re-fire. */
-	TSet<TWeakObjectPtr<ASynthVehicle>> AlreadyCaptured;
+	/**
+	 * Signed distance of each live vehicle to the trip plane, as of last tick. Rebuilt
+	 * every tick from the world, so destroyed vehicles drop out without bookkeeping.
+	 */
+	TMap<TWeakObjectPtr<ASynthVehicle>, float> PreviousSignedDistance;
 
 	FString RunDirectory;
 	FString LabelFilePath;

@@ -23,6 +23,7 @@ and what it gets validated against on real speed-camera footage.
 | `Source/SynthicCamera/Synth/SynthDataset.*` | The only filesystem I/O in the module |
 | `Source/SynthicCamera/Synth/SynthCaptureDirector.*` | Seeded run controller: N randomised passes |
 | `Content/Python/build_desert.py` | Rebuilds the whole scene from scratch |
+| `tools/preview_labels.py` | Draws each label back onto its image - the end-to-end check |
 
 ## Output
 
@@ -34,10 +35,41 @@ pose, and sun angle.
 
 ## Rebuilding
 
+Compile the module, then rebuild the scene. The scene script is idempotent - run it
+again after changing camera geometry and it prunes and rebuilds in place.
+
 ```
-powershell -File <skill>/scripts/build_ue.ps1    -Project SynthicCamera.uproject -Target SynthicCameraEditor
+powershell -File <skill>/scripts/build_ue.ps1      -Project SynthicCamera.uproject -Target SynthicCameraEditor
 powershell -File <skill>/scripts/run_ue_python.ps1 -Project SynthicCamera.uproject -Script Content/Python/build_desert.py
 ```
+
+## Generating a dataset
+
+Headless, exits by itself when the run completes:
+
+```
+"C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" SynthicCamera.uproject /Game/Synthic/Lvl_Desert -game -RenderOffScreen -unattended -nosplash -SynthAutoQuit
+```
+
+Then check the labels actually line up with the pixels:
+
+```
+python tools/preview_labels.py Saved/SynthData/<run>
+```
+
+Tune passes, seed, and speed range on the `CaptureDirector` actor; camera height,
+lateral offset and aim point live in `build_desert.py`.
+
+## Checks
+
+The bounding box is projected from 3D bounds, never measured from pixels, so a wrong
+box still produces plausible-looking numbers. Two things guard it:
+
+```
+"C:/Program Files/Epic Games/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" SynthicCamera.uproject -ExecCmds="Automation RunTests Synthic.Projection;quit" -unattended -nopause -nosplash
+```
+
+and the visual overlay from `tools/preview_labels.py`.
 
 ## Status
 

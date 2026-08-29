@@ -6,7 +6,6 @@
 #include "Synth/SynthVehicle.h"
 
 #include "Camera/CameraTypes.h"
-#include "Components/BoxComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Dom/JsonObject.h"
 #include "Engine/DirectionalLight.h"
@@ -58,7 +57,7 @@ namespace
 
 ASynthSpeedCamera::ASynthSpeedCamera()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
 
 	USceneComponent* Root = CreateDefaultSubobject<USceneComponent>(TEXT("CameraRoot"));
 	SetRootComponent(Root);
@@ -69,12 +68,8 @@ ASynthSpeedCamera::ASynthSpeedCamera()
 	CaptureComponent->bCaptureOnMovement = false;
 	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 
-	TriggerVolume = CreateDefaultSubobject<UBoxComponent>(TEXT("TriggerVolume"));
-	TriggerVolume->SetupAttachment(Root);
-	TriggerVolume->SetBoxExtent(FVector(100.0, 800.0, 400.0));
-	TriggerVolume->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	TriggerVolume->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
-	TriggerVolume->SetGenerateOverlapEvents(true);
+	CapturePoint = CreateDefaultSubobject<USceneComponent>(TEXT("CapturePoint"));
+	CapturePoint->SetupAttachment(Root);
 }
 
 void ASynthSpeedCamera::BeginPlay()
@@ -85,7 +80,6 @@ void ASynthSpeedCamera::BeginPlay()
 	EnsureRenderTarget();
 
 	CaptureComponent->FOVAngle = FieldOfViewDeg;
-	TriggerVolume->OnComponentBeginOverlap.AddDynamic(this, &ASynthSpeedCamera::OnVehicleEnteredTrigger);
 
 	for (TActorIterator<ADirectionalLight> It(GetWorld()); It; ++It)
 	{
@@ -125,23 +119,45 @@ void ASynthSpeedCamera::EnsureRenderTarget()
 	CaptureComponent->TextureTarget = RenderTarget;
 }
 
-void ASynthSpeedCamera::OnVehicleEnteredTrigger(UPrimitiveComponent* /*OverlappedComponent*/, AActor* OtherActor,
-	UPrimitiveComponent* /*OtherComponent*/, int32 /*OtherBodyIndex*/, bool /*bFromSweep*/, const FHitResult& /*Sweep*/)
+/**
+ * Fire on the frame a vehicle crosses the trip plane.
+ *
+ * An overlap volume would be the obvious way to do this and is the wrong one: at
+ * 110 km/h a vehicle advances ~51cm per frame, and faster traffic simply teleports
+ * across a box of any sane thickness and is never photographed. A signed-distance
+ * sign change cannot be tunnelled through at any speed.
+ *
+ * The shutter still fires up to one frame late, so the vehicle sits slightly past
+ * the plane - that is framing jitter, not label error, since the bounding box is
+ * projected from where the vehicle actually is. Real roadside cameras jitter too.
+ */
+void ASynthSpeedCamera::Tick(float DeltaSeconds)
 {
-	ASynthVehicle* Vehicle = Cast<ASynthVehicle>(OtherActor);
-	if (!Vehicle)
+	Super::Tick(DeltaSeconds);
+
+	const FVector PlanePoint = CapturePoint->GetComponentLocation();
+	const FVector PlaneNormal = CapturePoint->GetForwardVector();
+
+	TMap<TWeakObjectPtr<ASynthVehicle>, float> CurrentSignedDistance;
+
+	for (TActorIterator<ASynthVehicle> It(GetWorld()); It; ++It)
 	{
-		return;		// scenery drifting through the trigger is not a subject
+		ASynthVehicle* Vehicle = *It;
+		const float Distance = static_cast<float>(
+			FVector::DotProduct(Vehicle->GetActorLocation() - PlanePoint, PlaneNormal));
+
+		const float* Previous = PreviousSignedDistance.Find(Vehicle);
+		if (Previous && *Previous < 0.0f && Distance >= 0.0f)
+		{
+			// ponytail: one sample per crossing; burst capture is a loop around this call.
+			CaptureVehicle(Vehicle);
+		}
+
+		CurrentSignedDistance.Add(Vehicle, Distance);
 	}
 
-	bool bWasAlreadyCaptured = false;
-	AlreadyCaptured.Add(Vehicle, &bWasAlreadyCaptured);
-	if (bWasAlreadyCaptured)
-	{
-		return;		// ponytail: one sample per pass; burst capture is a loop here when needed
-	}
-
-	CaptureVehicle(Vehicle);
+	// Rebuilt wholesale, so vehicles the director destroyed simply stop being tracked.
+	PreviousSignedDistance = MoveTemp(CurrentSignedDistance);
 }
 
 FMatrix ASynthSpeedCamera::BuildViewProjectionMatrix() const

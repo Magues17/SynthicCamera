@@ -18,7 +18,9 @@ Layout, all centimetres, traffic travels along +X:
                         ^ trigger + aim point at X = -1500
 """
 
+import random
 import sys
+
 import unreal
 
 SKILL_SCRIPTS = r"C:\Users\mikel\.claude\skills\unreal-editor-automation\scripts"
@@ -37,7 +39,7 @@ ROAD_SURFACE_Z = 6.0            # road deck sits just proud of the sand
 
 CAMERA_POSITION = unreal.Vector(1200.0, -700.0, 550.0)
 CAMERA_AIM_POINT = unreal.Vector(-1500.0, 0.0, 150.0)   # mid-lane, roughly bonnet height
-DIRECTOR_POSITION = unreal.Vector(-12000.0, 0.0, 0.0)
+DIRECTOR_POSITION = unreal.Vector(-12000.0, 0.0, 16.0)   # on the road deck, not in it
 
 SAND = (0.76, 0.65, 0.45)
 ASPHALT = (0.06, 0.06, 0.07)
@@ -64,14 +66,13 @@ def build_ground(sand, rock):
 
     # Background relief so the horizon is not an empty plane. Seeded: the scene must
     # regenerate identically or the dataset is not reproducible.
-    stream = unreal.RandomStream()
-    stream.initialize(20260829)
+    stream = random.Random(20260829)
     for index in range(24):
-        x = stream.rand_range(-30000, 30000)
-        y = stream.rand_range(-30000, 30000)
+        x = stream.uniform(-30000, 30000)
+        y = stream.uniform(-30000, 30000)
         if abs(y) < ROAD_WIDTH_CM * 2:
             continue                                    # keep the carriageway clear
-        size = stream.rand_range(300, 1400)
+        size = stream.uniform(300, 1400)
         lh.spawn_block(f"Rock_{index:02d}", x, y, size * 0.25,
                        size, size * 0.8, size * 0.5, material=rock)
 
@@ -96,17 +97,18 @@ def build_camera():
 
     aim = unreal.MathLibrary.find_look_at_rotation(CAMERA_POSITION, CAMERA_AIM_POINT)
 
-    capture = camera.get_editor_property("CaptureComponent")
+    capture = camera.get_editor_property("capture_component")
     capture.set_editor_property("relative_rotation", aim)
 
-    # Trigger sits over the carriageway at the aim point, not at the pole, so the
-    # vehicle is near frame centre at the instant the shutter fires.
-    trigger = camera.get_editor_property("TriggerVolume")
-    trigger.set_editor_property("relative_location", unreal.Vector(
+    # The trip plane sits over the carriageway at the aim point, not at the pole, so the
+    # vehicle is near frame centre when the shutter fires. The camera actor is left
+    # unrotated so this offset stays expressible in plain world axes, and so the capture
+    # point's forward vector (+X) is the direction of travel - which is the plane normal.
+    capture_point = camera.get_editor_property("capture_point")
+    capture_point.set_editor_property("relative_location", unreal.Vector(
         CAMERA_AIM_POINT.x - CAMERA_POSITION.x,
         CAMERA_AIM_POINT.y - CAMERA_POSITION.y,
         CAMERA_AIM_POINT.z - CAMERA_POSITION.z))
-    trigger.set_editor_property("box_extent", unreal.Vector(60.0, ROAD_WIDTH_CM * 0.5, 400.0))
 
     lh.log(f"camera at {CAMERA_POSITION} aiming {aim}")
     return camera
@@ -121,7 +123,16 @@ def build_director():
 
 
 def main():
-    lh.fresh_level_from_template(LEVEL_PATH)
+    # DefaultEngine.ini points the startup map at this level, so on a rebuild the
+    # commandlet already has it open and deleting it would fail. Load-and-prune is
+    # both the fix and the simpler path: this level is not World Partition, so prune
+    # genuinely removes actors rather than silently no-opping on streaming cells.
+    if unreal.EditorAssetLibrary.does_asset_exist(LEVEL_PATH):
+        lh.log(f"{LEVEL_PATH} exists - loading and pruning for rebuild")
+        unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).load_level(LEVEL_PATH)
+    else:
+        lh.fresh_level_from_template(LEVEL_PATH)
+
     lh.prune_props()
 
     sand = lh.make_color_material("M_Sand", SAND)
