@@ -21,6 +21,7 @@ and what it gets validated against on real speed-camera footage.
 | `Source/SynthicCamera/Synth/SynthSpeedCamera.*` | Scene capture + trigger; writes the PNG and the label row |
 | `Source/SynthicCamera/Synth/SynthProjection.*` | Pure 3D-bounds-to-2D-bbox maths |
 | `Source/SynthicCamera/Synth/SynthDataset.*` | The only filesystem I/O in the module |
+| `Source/SynthicCamera/Synth/SynthWeather.*` | Atmospheric presets and how they reach the capture |
 | `Source/SynthicCamera/Synth/SynthCaptureDirector.*` | Seeded run controller: N randomised passes |
 | `Content/Python/build_desert.py` | Rebuilds the whole scene from scratch |
 | `tools/preview_labels.py` | Draws each label back onto its image - the end-to-end check |
@@ -56,6 +57,11 @@ Then check the labels actually line up with the pixels:
 ```
 python tools/preview_labels.py Saved/SynthData/<run>
 ```
+
+It reports bbox validity, class and weather balance, the randomisation spread per
+axis, and target contrast - how far the vehicle sits from its background. Heavy fog
+can wash a vehicle out until it is not meaningfully visible while its label stays
+confident, and those samples are named so they can be dropped or the fog capped.
 
 Tune passes, seed, and speed range on the `CaptureDirector` actor; camera height,
 lateral offset and aim point live in `build_desert.py`.

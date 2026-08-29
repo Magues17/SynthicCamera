@@ -60,6 +60,15 @@ RUN_SETTINGS = {
     # empty desert, which is pure wall-clock after the photo is already taken.
     "travel_distance_cm": 15000.0,
     "lane_jitter_cm": 150.0,
+
+    # Domain randomisation. Sun elevation is negative-is-downward, so -80 is near
+    # overhead and -12 is a low raking sun; the full yaw circle decides which faces
+    # of the vehicle are lit at all. WeatherMix is left to the C++ default (an even
+    # spread of all four conditions) because a TArray of enums is awkward from here.
+    "randomise_scene": True,
+    "sun_pitch_range_deg": unreal.Vector2D(-80.0, -12.0),
+    "sun_yaw_range_deg": unreal.Vector2D(0.0, 360.0),
+    "weather_jitter": 0.25,
 }
 
 SAND = (0.76, 0.65, 0.45)

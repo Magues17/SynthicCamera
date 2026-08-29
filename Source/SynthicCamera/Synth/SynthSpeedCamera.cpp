@@ -8,7 +8,10 @@
 #include "Camera/CameraTypes.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Dom/JsonObject.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/ExponentialHeightFog.h"
 #include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
@@ -89,6 +92,12 @@ void ASynthSpeedCamera::BeginPlay()
 		break;
 	}
 
+	for (TActorIterator<AExponentialHeightFog> It(GetWorld()); It; ++It)
+	{
+		HeightFog = *It;
+		break;
+	}
+
 	UE_LOG(LogSynthic, Log, TEXT("Speed camera armed. Writing %dx%d samples to '%s'."),
 		ImageWidth, ImageHeight, *RunDirectory);
 }
@@ -114,7 +123,11 @@ void ASynthSpeedCamera::ApplyAmbientLighting()
 	static const TCHAR* const AmbientCubemapPath =
 		TEXT("/Engine/MapTemplates/Sky/DaylightAmbientCubemap.DaylightAmbientCubemap");
 
-	UTextureCube* AmbientCubemap = LoadObject<UTextureCube>(nullptr, AmbientCubemapPath);
+	if (!AmbientCubemap)
+	{
+		AmbientCubemap = LoadObject<UTextureCube>(nullptr, AmbientCubemapPath);
+	}
+
 	if (!AmbientCubemap)
 	{
 		UE_LOG(LogSynthic, Warning,
@@ -131,7 +144,13 @@ void ASynthSpeedCamera::ApplyAmbientLighting()
 	Settings.bOverride_AmbientCubemapTint = true;
 	Settings.AmbientCubemapTint = FLinearColor::White;
 
-	UE_LOG(LogSynthic, Log, TEXT("Ambient cubemap applied at intensity %.2f."), AmbientIntensity);
+}
+
+void ASynthSpeedCamera::SetSceneConditions(float InAmbientIntensity, const FString& InWeatherName)
+{
+	AmbientIntensity = InAmbientIntensity;
+	WeatherName = InWeatherName;
+	ApplyAmbientLighting();
 }
 
 void ASynthSpeedCamera::EnsureRenderTarget()
@@ -331,11 +350,31 @@ TSharedRef<FJsonObject> ASynthSpeedCamera::BuildLabel(const ASynthVehicle& Vehic
 	CameraJson->SetNumberField(TEXT("fov_deg"), CaptureComponent->FOVAngle);
 	Root->SetObjectField(TEXT("camera"), CameraJson);
 
+	// Every field here is read back out of the world at capture time rather than
+	// echoing what the director asked for. A setter that silently fails then shows up
+	// as a flat column in the dataset instead of a plausible lie in every row.
 	TSharedPtr<FJsonObject> Scene = MakeShared<FJsonObject>();
+	Scene->SetStringField(TEXT("weather"), WeatherName);
+	Scene->SetNumberField(TEXT("ambient_intensity"), AmbientIntensity);
+
 	if (const ADirectionalLight* Sun = SunLight.Get())
 	{
 		Scene->SetNumberField(TEXT("sun_pitch_deg"), Sun->GetActorRotation().Pitch);
 		Scene->SetNumberField(TEXT("sun_yaw_deg"), Sun->GetActorRotation().Yaw);
+
+		if (const UDirectionalLightComponent* SunComponent =
+			Cast<UDirectionalLightComponent>(Sun->GetLightComponent()))
+		{
+			Scene->SetNumberField(TEXT("sun_intensity"), SunComponent->Intensity);
+		}
+	}
+
+	if (const AExponentialHeightFog* Fog = HeightFog.Get())
+	{
+		if (const UExponentialHeightFogComponent* FogComponent = Fog->GetComponent())
+		{
+			Scene->SetNumberField(TEXT("fog_density"), FogComponent->FogDensity);
+		}
 	}
 	Root->SetObjectField(TEXT("scene"), Scene);
 

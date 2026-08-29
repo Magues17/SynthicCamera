@@ -1,7 +1,9 @@
 #include "Synth/SynthCaptureDirector.h"
 
 #include "SynthicCamera.h"
+#include "Synth/SynthSpeedCamera.h"
 #include "Synth/SynthVehicle.h"
+#include "Synth/SynthWeather.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -66,9 +68,17 @@ void ASynthCaptureDirector::BeginPlay()
 		return;
 	}
 
+	if (WeatherMix.IsEmpty())
+	{
+		WeatherMix = { ESynthWeather::Clear, ESynthWeather::Hazy,
+			ESynthWeather::Overcast, ESynthWeather::DustStorm };
+	}
+
 	Stream.Initialize(RandomSeed);
-	UE_LOG(LogSynthic, Log, TEXT("Director: %d passes, seed %d, speeds %.0f-%.0f km/h."),
-		NumPasses, RandomSeed, MinSpeedKph, MaxSpeedKph);
+	UE_LOG(LogSynthic, Log,
+		TEXT("Director: %d passes, seed %d, speeds %.0f-%.0f km/h, scene randomisation %s (%d conditions)."),
+		NumPasses, RandomSeed, MinSpeedKph, MaxSpeedKph,
+		bRandomiseScene ? TEXT("on") : TEXT("OFF"), WeatherMix.Num());
 
 	DispatchNextVehicle();
 }
@@ -92,6 +102,33 @@ void ASynthCaptureDirector::Tick(float DeltaSeconds)
 	DispatchNextVehicle();
 }
 
+void ASynthCaptureDirector::RandomiseScene()
+{
+	if (!bRandomiseScene || WeatherMix.IsEmpty())
+	{
+		return;
+	}
+
+	const ESynthWeather Weather = WeatherMix[Stream.RandRange(0, WeatherMix.Num() - 1)];
+	const FSynthWeatherPreset Preset =
+		SynthWeather::Jitter(SynthWeather::GetPreset(Weather), Stream, WeatherJitter);
+
+	const float SunPitch = Stream.FRandRange(SunPitchRangeDeg.X, SunPitchRangeDeg.Y);
+	const float SunYaw = Stream.FRandRange(SunYawRangeDeg.X, SunYawRangeDeg.Y);
+
+	SynthWeather::ApplyToWorld(*GetWorld(), Preset, SunPitch, SunYaw);
+
+	// Ambient is a post-process value on each capture, not a world actor, so it has
+	// to be pushed rather than picked up from the level like sun and fog are.
+	for (TActorIterator<ASynthSpeedCamera> It(GetWorld()); It; ++It)
+	{
+		It->SetSceneConditions(Preset.AmbientIntensity, SynthWeather::GetName(Weather));
+	}
+
+	UE_LOG(LogSynthic, Log, TEXT("Director: %s, sun %.0f deg elevation / %.0f deg bearing, fog %.2f."),
+		*SynthWeather::GetName(Weather), SunPitch, SunYaw, Preset.FogDensity);
+}
+
 bool ASynthCaptureDirector::DispatchNextVehicle()
 {
 	if (PassesDispatched >= NumPasses)
@@ -106,6 +143,8 @@ bool ASynthCaptureDirector::DispatchNextVehicle()
 		}
 		return false;
 	}
+
+	RandomiseScene();
 
 	const FSynthVehicleSpec& Spec = Catalog[Stream.RandRange(0, Catalog.Num() - 1)];
 	const float SpeedKph = Stream.FRandRange(MinSpeedKph, MaxSpeedKph);

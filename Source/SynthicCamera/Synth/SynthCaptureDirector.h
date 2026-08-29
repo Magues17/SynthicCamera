@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "Math/RandomStream.h"
 #include "Synth/SynthTypes.h"
+#include "Synth/SynthWeather.h"
 #include "SynthCaptureDirector.generated.h"
 
 class ASynthVehicle;
@@ -55,6 +56,34 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic")
 	float LaneJitterCm = 150.0f;
 
+	/** Re-roll sun angle and weather before every pass. Off gives one fixed condition. */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
+	bool bRandomiseScene = true;
+
+	/**
+	 * Sun elevation range in degrees. Negative points downward, so -80 is near
+	 * overhead and -12 is a low raking sun. The low end is the hard case worth
+	 * covering: long shadows, heavy glare, and the vehicle lit from one side only.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
+	FVector2D SunPitchRangeDeg = FVector2D(-80.0, -12.0);
+
+	/** Sun compass range. The full circle - it decides which faces are lit at all. */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
+	FVector2D SunYawRangeDeg = FVector2D(0.0, 360.0);
+
+	/**
+	 * Conditions to draw from, sampled uniformly. Repeat an entry to weight it - a
+	 * mix of three Clear to one DustStorm is realistic, but an even spread gives a
+	 * model more of the rare cases to learn from, which is usually what you want.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
+	TArray<ESynthWeather> WeatherMix;
+
+	/** Per-parameter spread within a condition, as a fraction. 0.25 = +/-25%. */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation", meta = (ClampMin = "0.0", ClampMax = "0.9"))
+	float WeatherJitter = 0.25f;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -62,6 +91,9 @@ protected:
 private:
 	/** Realistic proxy archetypes, used when no catalog is authored. */
 	static TArray<FSynthVehicleSpec> MakeDefaultCatalog();
+
+	/** Re-roll sun angle and weather, and push the ambient term to every camera. */
+	void RandomiseScene();
 
 	/** Spawn the next randomised vehicle at the start line. Returns false when done. */
 	bool DispatchNextVehicle();

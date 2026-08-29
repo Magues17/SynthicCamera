@@ -5,7 +5,9 @@
 #include "SynthSpeedCamera.generated.h"
 
 class ADirectionalLight;
+class AExponentialHeightFog;
 class ASynthVehicle;
+class UTextureCube;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 struct FSynthScreenBox;
@@ -37,6 +39,14 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 public:
+	/**
+	 * Push the current atmospheric condition in. Called by the director once per pass;
+	 * the ambient term is a per-capture post-process value, so it cannot live on a
+	 * world actor the way sun and fog do.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Synthic")
+	void SetSceneConditions(float InAmbientIntensity, const FString& InWeatherName);
+
 	/** Capture and label a single pass. Public so a test or the director can force one. */
 	UFUNCTION(BlueprintCallable, Category = "Synthic")
 	bool CaptureVehicle(ASynthVehicle* Vehicle);
@@ -90,6 +100,15 @@ private:
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<ADirectionalLight> SunLight;
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<AExponentialHeightFog> HeightFog;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureCube> AmbientCubemap;
+
+	/** Set by the director each pass; "unspecified" when nothing is randomising. */
+	FString WeatherName = TEXT("unspecified");
 
 	/**
 	 * Signed distance of each live vehicle to the trip plane, as of last tick. Rebuilt

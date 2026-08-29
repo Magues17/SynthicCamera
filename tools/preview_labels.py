@@ -21,6 +21,10 @@ from PIL import Image, ImageDraw
 BOX_COLOUR = (0, 255, 128)
 CLIPPED_COLOUR = (255, 190, 0)
 
+# Mean-channel separation below which the target is not meaningfully visible.
+# Eyeballed against the fog presets, not derived - retune if the presets change.
+LOW_CONTRAST = 8.0
+
 
 def load_rows(labels_path):
     rows = []
@@ -35,6 +39,28 @@ def load_rows(labels_path):
             # than silently training on a short dataset.
             raise SystemExit(f"{labels_path}:{line_number} is not valid JSON: {error}")
     return rows
+
+
+def target_contrast(image, box):
+    """How far the target's mean colour sits from the background just outside it.
+
+    bbox_valid is a geometric check - it says the projection landed on-image, not
+    that anything is visible there. Under heavy fog a vehicle can wash out until it
+    is indistinguishable from the sand behind it, and that sample still carries a
+    confident label. Training on those teaches noise, so they need flagging.
+    """
+    x, y, w, h = box["x"], box["y"], box["w"], box["h"]
+    if w < 4 or h < 4:
+        return 0.0
+
+    inner = image.crop((x, y, x + w, y + h))
+    margin = max(w, h) * 0.4
+    outer = image.crop((max(0, x - margin), max(0, y - margin),
+                        min(image.width, x + w + margin), min(image.height, y + h + margin)))
+
+    inner_mean = [sum(c) / len(c) for c in zip(*inner.get_flattened_data())]
+    outer_mean = [sum(c) / len(c) for c in zip(*outer.get_flattened_data())]
+    return max(abs(a - b) for a, b in zip(inner_mean, outer_mean))
 
 
 def annotate(row, run_dir, preview_dir):
@@ -52,6 +78,7 @@ def annotate(row, run_dir, preview_dir):
         draw.rectangle(
             [box["x"], box["y"], box["x"] + box["w"], box["y"] + box["h"]],
             outline=colour, width=3)
+        row["_contrast"] = target_contrast(image, box)
 
     vehicle = row["vehicle"]
     kinematics = row["kinematics"]
@@ -80,6 +107,7 @@ def main():
 
     problems = [message for message in (annotate(r, run_dir, preview_dir) for r in rows) if message]
 
+    scenes = Counter(r["scene"].get("weather", "unspecified") for r in rows)
     classes = Counter(r["vehicle"]["class"] for r in rows)
     valid = sum(1 for r in rows if r["geometry"]["bbox_valid"])
     clipped = sum(1 for r in rows if r["geometry"]["bbox_clipped"])
@@ -91,6 +119,33 @@ def main():
     if speeds:
         print(f"speed range    : {min(speeds):.1f} - {max(speeds):.1f} km/h")
     print(f"class balance  : {dict(classes)}")
+    print(f"weather        : {dict(scenes)}")
+
+    # Randomisation coverage. A range that has collapsed to a single value means the
+    # labels claim variation the images do not have, which is the failure mode worth
+    # catching here - it is invisible in any single sample.
+    for field, label in (("sun_pitch_deg", "sun elevation"), ("sun_yaw_deg", "sun bearing"),
+                         ("sun_intensity", "sun intensity"), ("fog_density", "fog density"),
+                         ("ambient_intensity", "ambient")):
+        values = [r["scene"][field] for r in rows if field in r["scene"]]
+        if not values:
+            print(f"{label:14s} : ABSENT - not being recorded")
+        elif max(values) - min(values) < 1e-6:
+            print(f"{label:14s} : CONSTANT at {values[0]:.3f} - not varying")
+        else:
+            print(f"{label:14s} : {min(values):.2f} to {max(values):.2f}")
+
+    contrasts = [r["_contrast"] for r in rows if "_contrast" in r]
+    if contrasts:
+        faint = [r for r in rows if r.get("_contrast", 99) < LOW_CONTRAST]
+        print(f"target contrast: {min(contrasts):.1f} to {max(contrasts):.1f}")
+        if faint:
+            print(f"                 {len(faint)} sample(s) below {LOW_CONTRAST} - target barely "
+                  f"separable from background, consider dropping or capping fog:")
+            for r in faint:
+                print(f"                   {r['image_file']}  {r['scene']['weather']} "
+                      f"fog {r['scene'].get('fog_density', 0):.2f}  contrast {r['_contrast']:.1f}")
+
     print(f"previews       : {preview_dir}")
     for message in problems:
         print(f"PROBLEM        : {message}")
