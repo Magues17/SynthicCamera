@@ -135,6 +135,27 @@ def main():
         else:
             print(f"{label:14s} : {min(values):.2f} to {max(values):.2f}")
 
+    # Framing check. Camera position, aim direction and the trip plane are set
+    # together; if they ever drift apart the boxes stay geometrically valid but march
+    # off toward an edge. A centre offset that creeps up is the visible symptom.
+    offsets = []
+    for r in rows:
+        box = r["geometry"].get("bbox_xywh")
+        if not box:
+            continue
+        cx = (box["x"] + box["w"] / 2) / r["image_width"]
+        cy = (box["y"] + box["h"] / 2) / r["image_height"]
+        offsets.append(max(abs(cx - 0.5), abs(cy - 0.5)) * 2)
+    if offsets:
+        print(f"framing offset : {min(offsets):.2f} to {max(offsets):.2f} "
+              f"(0 = centred, 1 = at frame edge)")
+
+    sizes = [r["geometry"]["bbox_xywh"]["w"] * r["geometry"]["bbox_xywh"]["h"] /
+             (r["image_width"] * r["image_height"])
+             for r in rows if r["geometry"].get("bbox_xywh")]
+    if sizes:
+        print(f"target size    : {min(sizes)*100:.1f}% to {max(sizes)*100:.1f}% of frame")
+
     contrasts = [r["_contrast"] for r in rows if "_contrast" in r]
     if contrasts:
         faint = [r for r in rows if r.get("_contrast", 99) < LOW_CONTRAST]

@@ -76,6 +76,16 @@ ASynthSpeedCamera::ASynthSpeedCamera()
 	CapturePoint->SetupAttachment(Root);
 }
 
+void ASynthSpeedCamera::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	// Recorded here, not in BeginPlay: the director re-sites cameras from its own
+	// BeginPlay, and BeginPlay ordering between actors is not guaranteed. By this
+	// point every actor is constructed and none has been moved.
+	InstallOrigin = GetActorLocation();
+}
+
 void ASynthSpeedCamera::BeginPlay()
 {
 	Super::BeginPlay();
@@ -144,6 +154,35 @@ void ASynthSpeedCamera::ApplyAmbientLighting()
 	Settings.bOverride_AmbientCubemapTint = true;
 	Settings.AmbientCubemapTint = FLinearColor::White;
 
+}
+
+void ASynthSpeedCamera::PlaceAt(const FVector& Position, const FVector& AimPoint,
+	float RollDeg, float FieldOfView)
+{
+	const FVector ToAim = AimPoint - Position;
+	if (ToAim.IsNearlyZero())
+	{
+		UE_LOG(LogSynthic, Error,
+			TEXT("PlaceAt: aim point coincides with the camera; leaving the install untouched."));
+		return;
+	}
+
+	SetActorLocation(Position);
+
+	// The root stays unrotated on purpose. The trip plane's normal is the capture
+	// point's forward vector, and keeping the actor square to the world keeps that
+	// normal aligned with the traffic direction no matter where the lens points.
+	SetActorRotation(FRotator::ZeroRotator);
+
+	FRotator Aim = ToAim.Rotation();
+	Aim.Roll = RollDeg;
+	CaptureComponent->SetRelativeRotation(Aim);
+
+	// Unrotated root means a relative offset is a plain world offset.
+	CapturePoint->SetRelativeLocation(ToAim);
+
+	FieldOfViewDeg = FieldOfView;
+	CaptureComponent->FOVAngle = FieldOfView;
 }
 
 void ASynthSpeedCamera::SetSceneConditions(float InAmbientIntensity, const FString& InWeatherName)

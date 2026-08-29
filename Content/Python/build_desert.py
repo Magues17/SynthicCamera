@@ -69,6 +69,11 @@ RUN_SETTINGS = {
     "sun_pitch_range_deg": unreal.Vector2D(-80.0, -12.0),
     "sun_yaw_range_deg": unreal.Vector2D(0.0, 360.0),
     "weather_jitter": 0.25,
+
+    # Camera install is re-sited per pass. Ranges live on the CameraPose struct and
+    # are left at their C++ defaults; set randomise_camera_pose False to model one
+    # specific real installation instead of a spread of them.
+    "randomise_camera_pose": True,
 }
 
 SAND = (0.76, 0.65, 0.45)

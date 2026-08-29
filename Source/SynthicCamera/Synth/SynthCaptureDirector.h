@@ -7,6 +7,7 @@
 #include "Synth/SynthWeather.h"
 #include "SynthCaptureDirector.generated.h"
 
+class ASynthSpeedCamera;
 class ASynthVehicle;
 
 /**
@@ -84,6 +85,16 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation", meta = (ClampMin = "0.0", ClampMax = "0.9"))
 	float WeatherJitter = 0.25f;
 
+	/**
+	 * Re-site the camera before every pass. Off keeps whatever the level was built
+	 * with, which is the right choice when modelling one specific real install.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
+	bool bRandomiseCameraPose = true;
+
+	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
+	FSynthCameraPoseRanges CameraPose;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -92,8 +103,11 @@ private:
 	/** Realistic proxy archetypes, used when no catalog is authored. */
 	static TArray<FSynthVehicleSpec> MakeDefaultCatalog();
 
-	/** Re-roll sun angle and weather, and push the ambient term to every camera. */
+	/** Re-roll sun angle and weather, and push ambient and pose to every camera. */
 	void RandomiseScene();
+
+	/** Draw one camera install from CameraPose and apply it. */
+	void RandomiseCameraPose(ASynthSpeedCamera& Camera);
 
 	/** Spawn the next randomised vehicle at the start line. Returns false when done. */
 	bool DispatchNextVehicle();

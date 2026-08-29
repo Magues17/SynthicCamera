@@ -123,10 +123,72 @@ void ASynthCaptureDirector::RandomiseScene()
 	for (TActorIterator<ASynthSpeedCamera> It(GetWorld()); It; ++It)
 	{
 		It->SetSceneConditions(Preset.AmbientIntensity, SynthWeather::GetName(Weather));
+
+		if (bRandomiseCameraPose)
+		{
+			RandomiseCameraPose(**It);
+		}
 	}
 
 	UE_LOG(LogSynthic, Log, TEXT("Director: %s, sun %.0f deg elevation / %.0f deg bearing, fog %.2f."),
 		*SynthWeather::GetName(Weather), SunPitch, SunYaw, Preset.FogDensity);
+}
+
+void ASynthCaptureDirector::RandomiseCameraPose(ASynthSpeedCamera& Camera)
+{
+	// The director's transform defines the road: its location is the start line and
+	// its forward vector is the direction of travel. Directions come from that frame
+	// so the geometry survives the road being moved or rotated.
+	const FVector Along = GetActorForwardVector();
+	const FVector Across = GetActorRightVector();
+	const FVector StartLine = GetActorLocation();
+
+	// How far down the road the level actually installed this camera. Positions are
+	// perturbations of that, NOT offsets from the start line - measuring from the
+	// start line put the camera (and with it the trip plane) behind the spawn point,
+	// where an approaching vehicle is already past the plane and never crosses it.
+	const float InstalledAlong =
+		static_cast<float>(FVector::DotProduct(Camera.GetInstallOrigin() - StartLine, Along));
+
+	const float AlongRoad = InstalledAlong +
+		Stream.FRandRange(CameraPose.AlongRoadJitterCm.X, CameraPose.AlongRoadJitterCm.Y);
+
+	const float Side = Stream.FRand() < 0.5f ? -1.0f : 1.0f;
+	const float Lateral = Side * Stream.FRandRange(
+		CameraPose.LateralOffsetCm.X, CameraPose.LateralOffsetCm.Y);
+	const float Height = Stream.FRandRange(CameraPose.HeightCm.X, CameraPose.HeightCm.Y);
+
+	const FVector Position = StartLine + (Along * AlongRoad) + (Across * Lateral)
+		+ FVector(0.0, 0.0, Height);
+
+	// Sampling a distance up-road rather than an absolute position is what guarantees
+	// the camera always faces oncoming traffic, instead of hoping two independent
+	// draws happen to land the right way round.
+	const float AimDistance = Stream.FRandRange(CameraPose.AimDistanceCm.X, CameraPose.AimDistanceCm.Y);
+	const float AimLateral = Stream.FRandRange(CameraPose.AimLateralCm.X, CameraPose.AimLateralCm.Y);
+	const float AimHeight = Stream.FRandRange(CameraPose.AimHeightCm.X, CameraPose.AimHeightCm.Y);
+
+	const FVector AimPoint = StartLine + (Along * (AlongRoad - AimDistance))
+		+ (Across * AimLateral) + FVector(0.0, 0.0, AimHeight);
+
+	// The trip plane sits at the aim point, so a vehicle must still have road left to
+	// cover before reaching it. Warn rather than emit a run of empty passes.
+	if (AlongRoad - AimDistance <= 0.0f)
+	{
+		UE_LOG(LogSynthic, Warning,
+			TEXT("Camera pose: trip plane lands %.0fcm behind the start line; this pass will not "
+				 "capture. Reduce AimDistanceCm or move the camera further down the road."),
+			AimDistance - AlongRoad);
+	}
+
+	const float Roll = Stream.FRandRange(CameraPose.RollDeg.X, CameraPose.RollDeg.Y);
+	const float Fov = Stream.FRandRange(CameraPose.FieldOfViewDeg.X, CameraPose.FieldOfViewDeg.Y);
+
+	Camera.PlaceAt(Position, AimPoint, Roll, Fov);
+
+	UE_LOG(LogSynthic, Log,
+		TEXT("Director: camera %.0fcm high, %.0fcm off-side, shooting %.0fm at %.0f deg FOV."),
+		Height, Lateral, AimDistance / 100.0f, Fov);
 }
 
 bool ASynthCaptureDirector::DispatchNextVehicle()

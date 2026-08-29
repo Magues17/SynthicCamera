@@ -34,11 +34,31 @@ public:
 
 	int32 GetCaptureCount() const { return CaptureCount; }
 
+	/**
+	 * Where the level placed this camera, captured before anything moves it.
+	 *
+	 * Randomisation perturbs the authored install rather than inventing a position
+	 * from scratch, so the ranges stay meaningful if the road is moved or rotated.
+	 */
+	const FVector& GetInstallOrigin() const { return InstallOrigin; }
+
 protected:
+	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
 public:
+	/**
+	 * Move the install: pole position, what it looks at, camera roll and lens.
+	 *
+	 * Position, aim direction and the trip plane are three coupled things - the plane
+	 * has to sit where the lens is pointed or the vehicle is photographed off-frame,
+	 * and a bounding box computed from a stale aim is confidently wrong rather than
+	 * obviously broken. They are set together here so they cannot drift apart.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Synthic")
+	void PlaceAt(const FVector& Position, const FVector& AimPoint, float RollDeg, float FieldOfView);
+
 	/**
 	 * Push the current atmospheric condition in. Called by the director once per pass;
 	 * the ambient term is a per-capture post-process value, so it cannot live on a
@@ -116,6 +136,7 @@ private:
 	 */
 	TMap<TWeakObjectPtr<ASynthVehicle>, float> PreviousSignedDistance;
 
+	FVector InstallOrigin = FVector::ZeroVector;
 	FString RunDirectory;
 	FString LabelFilePath;
 	int32 CaptureCount = 0;
