@@ -18,8 +18,15 @@ class ASynthVehicle;
  * of travel and its right vector is the lane axis. Place it at the far end of the road
  * pointing at the camera.
  *
- * Seeded on purpose: a dataset you cannot regenerate byte-for-byte is a dataset you
- * cannot debug when a model trained on it behaves oddly.
+ * Seeded on purpose: a dataset you cannot regenerate is one you cannot debug when a
+ * model trained on it behaves oddly.
+ *
+ * The seed fixes every decision - vehicle, speed, lane, weather, sun angle, camera
+ * pose - so two runs are parameter-identical. They are NOT pixel-identical: the
+ * shutter fires up to one frame after the trip plane is crossed, and frame duration
+ * varies between runs, so a vehicle can sit a few centimetres further on. Labels
+ * still match their own image exactly, because the box is projected from where the
+ * vehicle actually is. Use the seed to reproduce conditions, not to diff renders.
  */
 UCLASS()
 class SYNTHICCAMERA_API ASynthCaptureDirector : public AActor

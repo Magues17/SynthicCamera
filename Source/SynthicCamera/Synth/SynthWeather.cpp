@@ -48,7 +48,11 @@ FSynthWeatherPreset GetPreset(ESynthWeather Weather)
 	case ESynthWeather::DustStorm:
 		Preset.SunIntensity = 1.5f;
 		Preset.SunColor = FLinearColor(1.00f, 0.72f, 0.42f);
-		Preset.FogDensity = 2.0f;
+		// Capped at 1.2 (so ~1.5 after jitter), down from 2.0. Measured: a sample at
+		// 2.41 left the vehicle 7.3 mean-channel separation from its background - a
+		// confident label on a target that is not meaningfully there. Thick dust is
+		// a legitimate hard case; dust you cannot see through is only noise.
+		Preset.FogDensity = 1.2f;
 		Preset.FogColor = FLinearColor(0.66f, 0.50f, 0.30f);
 		Preset.AmbientIntensity = 6.0f;
 		break;
