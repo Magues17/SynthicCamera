@@ -46,6 +46,9 @@ CAMERA_SETTINGS = {
     "image_width": 1280,
     "image_height": 720,
     "field_of_view_deg": 50.0,
+    # Ambient fill for shadowed surfaces. A SkyLight does not reach SceneCapture2D
+    # renders, so the camera applies an ambient cubemap in its own post-process chain.
+    "ambient_intensity": 4.0,
 }
 
 RUN_SETTINGS = {
@@ -81,6 +84,7 @@ def spawn_synth_actor(class_path, location, rotation=None):
 VEHICLE_BODY_MATERIAL = "M_VehicleBody"
 
 
+
 def make_vehicle_body_material(folder="/Game/Materials"):
     """Material with a *parameter* driving base colour, not a baked constant.
 
@@ -114,30 +118,6 @@ def make_vehicle_body_material(folder="/Game/Materials"):
     unreal.EditorAssetLibrary.save_asset(path)
     lh.log(f"created {path}")
     return material
-
-
-def fix_sky_lighting():
-    """Give shadowed surfaces real ambient fill.
-
-    Without a capturing SkyLight only the sun-facing faces are lit and everything
-    else renders pure black. Real daylight fills shadows with sky bounce, and a
-    dataset of black-sided vehicles teaches a model a lighting model that does not
-    exist outdoors.
-    """
-    for actor in _editor_actor.get_all_level_actors():
-        if actor.get_class().get_name() != "SkyLight":
-            continue
-        try:
-            actor.set_actor_scale3d(unreal.Vector(1, 1, 1))
-            component = actor.get_editor_property("light_component")
-            component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
-            component.set_editor_property("real_time_capture", True)
-            component.set_editor_property("intensity_scale", 1.0)
-            lh.log("skylight set to real-time capture")
-        except Exception as error:
-            # The light Python bindings are inconsistent between versions; say so
-            # rather than leaving a silently unlit scene to be discovered in the data.
-            lh.log(f"WARNING could not configure skylight: {error}")
 
 
 def build_ground(sand, rock):
@@ -236,7 +216,6 @@ def main():
 
     build_ground(sand, rock)
     build_road(asphalt, line)
-    fix_sky_lighting()
     build_camera()
     build_director()
 

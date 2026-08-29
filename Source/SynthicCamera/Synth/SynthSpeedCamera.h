@@ -51,12 +51,25 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Capture", meta = (ClampMin = "5.0", ClampMax = "170.0"))
 	float FieldOfViewDeg = 50.0f;
 
+	/**
+	 * Ambient fill applied through the capture's own post-process chain.
+	 *
+	 * A SkyLight is the physically correct source and contributes nothing to
+	 * SceneCapture2D renders - measured, with real-time capture, Lumen, classic GI
+	 * and a forced RecaptureSky all leaving shadowed faces at RGB (0,0,0). An
+	 * ambient cubemap is a per-view deferred feature, so it does reach the capture.
+	 * Zero disables it and every surface facing away from the sun goes black.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Capture", meta = (ClampMin = "0.0"))
+	float AmbientIntensity = 1.0f;
+
 	/** Leave empty to name the run from the wall clock at BeginPlay. */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Capture")
 	FString RunName;
 
 private:
 	void EnsureRenderTarget();
+	void ApplyAmbientLighting();
 	void ResolveRunDirectory();
 	FMatrix BuildViewProjectionMatrix() const;
 	TSharedRef<class FJsonObject> BuildLabel(const ASynthVehicle& Vehicle, const FSynthScreenBox& Box,

@@ -9,6 +9,7 @@
 #include "Components/SceneCaptureComponent2D.h"
 #include "Dom/JsonObject.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
@@ -80,6 +81,7 @@ void ASynthSpeedCamera::BeginPlay()
 	EnsureRenderTarget();
 
 	CaptureComponent->FOVAngle = FieldOfViewDeg;
+	ApplyAmbientLighting();
 
 	for (TActorIterator<ADirectionalLight> It(GetWorld()); It; ++It)
 	{
@@ -100,6 +102,36 @@ void ASynthSpeedCamera::ResolveRunDirectory()
 
 	RunDirectory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("SynthData"), RunName);
 	LabelFilePath = FPaths::Combine(RunDirectory, TEXT("labels.jsonl"));
+}
+
+void ASynthSpeedCamera::ApplyAmbientLighting()
+{
+	if (AmbientIntensity <= 0.0f)
+	{
+		return;
+	}
+
+	static const TCHAR* const AmbientCubemapPath =
+		TEXT("/Engine/MapTemplates/Sky/DaylightAmbientCubemap.DaylightAmbientCubemap");
+
+	UTextureCube* AmbientCubemap = LoadObject<UTextureCube>(nullptr, AmbientCubemapPath);
+	if (!AmbientCubemap)
+	{
+		UE_LOG(LogSynthic, Warning,
+			TEXT("Ambient cubemap '%s' failed to load; shadowed surfaces will render black."),
+			AmbientCubemapPath);
+		return;
+	}
+
+	// The cubemap itself carries no override flag - only tint and intensity do.
+	FPostProcessSettings& Settings = CaptureComponent->PostProcessSettings;
+	Settings.AmbientCubemap = AmbientCubemap;
+	Settings.bOverride_AmbientCubemapIntensity = true;
+	Settings.AmbientCubemapIntensity = AmbientIntensity;
+	Settings.bOverride_AmbientCubemapTint = true;
+	Settings.AmbientCubemapTint = FLinearColor::White;
+
+	UE_LOG(LogSynthic, Log, TEXT("Ambient cubemap applied at intensity %.2f."), AmbientIntensity);
 }
 
 void ASynthSpeedCamera::EnsureRenderTarget()

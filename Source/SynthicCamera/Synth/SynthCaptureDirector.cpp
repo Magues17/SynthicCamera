@@ -3,6 +3,7 @@
 #include "SynthicCamera.h"
 #include "Synth/SynthVehicle.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 
