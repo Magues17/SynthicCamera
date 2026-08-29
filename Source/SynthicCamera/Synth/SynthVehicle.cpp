@@ -9,7 +9,9 @@ namespace
 {
 	/** Engine primitive used for proxy geometry: a 100uu cube centred on its origin. */
 	const TCHAR* const ProxyCubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
-	const TCHAR* const ProxyMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
+	/** Built by build_desert.py; exposes a "Color" parameter the livery can drive. */
+	const TCHAR* const ProxyMaterialPath = TEXT("/Game/Materials/M_VehicleBody.M_VehicleBody");
+	const TCHAR* const FallbackMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 	constexpr float ProxyCubeSizeCm = 100.0f;
 }
 
@@ -72,7 +74,19 @@ void ASynthVehicle::BuildProxyGeometry()
 	VehicleMesh->SetStaticMesh(Cube);
 	VehicleMesh->SetRelativeScale3D(Spec.DimensionsCm / ProxyCubeSizeCm);
 
-	if (UMaterialInterface* ProxyMaterial = LoadObject<UMaterialInterface>(nullptr, ProxyMaterialPath))
+	UMaterialInterface* ProxyMaterial = LoadObject<UMaterialInterface>(nullptr, ProxyMaterialPath);
+	if (!ProxyMaterial)
+	{
+		// Say so loudly: the fallback has no Color parameter, so every vehicle would
+		// render identically while the labels still claim a livery per vehicle.
+		UE_LOG(LogSynthic, Warning,
+			TEXT("Proxy material '%s' missing - falling back to an unparameterised material, "
+				 "so LiveryColor will NOT be visible. Re-run build_desert.py to create it."),
+			ProxyMaterialPath);
+		ProxyMaterial = LoadObject<UMaterialInterface>(nullptr, FallbackMaterialPath);
+	}
+
+	if (ProxyMaterial)
 	{
 		VehicleMesh->SetMaterial(0, ProxyMaterial);
 	}

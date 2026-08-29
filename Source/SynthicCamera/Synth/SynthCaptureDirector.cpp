@@ -17,7 +17,8 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 	// Proxy stand-ins with real-world dimensions. Make is deliberately "PROXY" so no
 	// one mistakes a box for a real vehicle signature in the output. Point Spec.Mesh at
 	// an imported asset to promote an entry to the real thing - no code change needed.
-	auto Entry = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims, int32 Axles, bool bTracked)
+	auto Entry = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims, int32 Axles, bool bTracked,
+		const TCHAR* Livery, FLinearColor Colour)
 	{
 		FSynthVehicleSpec Spec;
 		Spec.Make = TEXT("PROXY");
@@ -26,15 +27,24 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 		Spec.DimensionsCm = Dims;
 		Spec.AxleCount = Axles;
 		Spec.bTracked = bTracked;
+		Spec.LiveryName = Livery;
+		Spec.LiveryColor = Colour;
 		return Spec;
 	};
 
+	// Distinct liveries so the colour field in the label is actually present in the
+	// pixels. Identical colours would make it a field a model can only learn to ignore.
 	return {
-		Entry(TEXT("LightUtility4x4"), ESynthVehicleClass::LightUtility, FVector(480, 210, 195), 2, false),
-		Entry(TEXT("CargoTruck6x6"),   ESynthVehicleClass::CargoTruck,   FVector(780, 250, 290), 3, false),
-		Entry(TEXT("WheeledAPC8x8"),   ESynthVehicleClass::APC,          FVector(780, 290, 270), 4, false),
-		Entry(TEXT("TrackedIFV"),      ESynthVehicleClass::IFV,          FVector(660, 320, 260), 0, true),
-		Entry(TEXT("MainBattleTank"),  ESynthVehicleClass::MBT,          FVector(990, 370, 245), 0, true)
+		Entry(TEXT("LightUtility4x4"), ESynthVehicleClass::LightUtility, FVector(480, 210, 195), 2, false,
+			TEXT("desert-tan"), FLinearColor(0.42f, 0.34f, 0.20f)),
+		Entry(TEXT("CargoTruck6x6"), ESynthVehicleClass::CargoTruck, FVector(780, 250, 290), 3, false,
+			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f)),
+		Entry(TEXT("WheeledAPC8x8"), ESynthVehicleClass::APC, FVector(780, 290, 270), 4, false,
+			TEXT("nato-green"), FLinearColor(0.13f, 0.20f, 0.14f)),
+		Entry(TEXT("TrackedIFV"), ESynthVehicleClass::IFV, FVector(660, 320, 260), 0, true,
+			TEXT("sand-grey"), FLinearColor(0.38f, 0.35f, 0.28f)),
+		Entry(TEXT("MainBattleTank"), ESynthVehicleClass::MBT, FVector(990, 370, 245), 0, true,
+			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f))
 	};
 }
 

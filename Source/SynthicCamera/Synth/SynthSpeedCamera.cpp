@@ -258,6 +258,8 @@ TSharedRef<FJsonObject> ASynthSpeedCamera::BuildLabel(const ASynthVehicle& Vehic
 	VehicleJson->SetNumberField(TEXT("axle_count"), Spec.AxleCount);
 	VehicleJson->SetBoolField(TEXT("tracked"), Spec.bTracked);
 	VehicleJson->SetStringField(TEXT("livery"), Spec.LiveryName);
+	VehicleJson->SetObjectField(TEXT("livery_rgb"), VectorToJson(
+		FVector(Spec.LiveryColor.R, Spec.LiveryColor.G, Spec.LiveryColor.B)));
 	VehicleJson->SetObjectField(TEXT("dimensions_cm"), VectorToJson(Spec.DimensionsCm));
 	Root->SetObjectField(TEXT("vehicle"), VehicleJson);
 

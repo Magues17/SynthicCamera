@@ -78,6 +78,68 @@ def spawn_synth_actor(class_path, location, rotation=None):
         actor_class, location, rotation or unreal.Rotator(0, 0, 0))
 
 
+VEHICLE_BODY_MATERIAL = "M_VehicleBody"
+
+
+def make_vehicle_body_material(folder="/Game/Materials"):
+    """Material with a *parameter* driving base colour, not a baked constant.
+
+    The engine's BasicShapeMaterial exposes no colour parameter, so the per-vehicle
+    dynamic instance had nothing to set and every proxy rendered the same. A livery
+    field in the label that the pixels do not reflect is worse than no field at all.
+    """
+    path = f"{folder}/{VEHICLE_BODY_MATERIAL}"
+    if unreal.EditorAssetLibrary.does_asset_exist(path):
+        return unreal.EditorAssetLibrary.load_asset(path)
+
+    if not unreal.EditorAssetLibrary.does_directory_exist(folder):
+        unreal.EditorAssetLibrary.make_directory(folder)
+
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+        VEHICLE_BODY_MATERIAL, folder, unreal.Material, unreal.MaterialFactoryNew())
+    editing = unreal.MaterialEditingLibrary
+
+    colour = editing.create_material_expression(
+        material, unreal.MaterialExpressionVectorParameter, -400, 0)
+    colour.set_editor_property("parameter_name", "Color")
+    colour.set_editor_property("default_value", unreal.LinearColor(0.21, 0.22, 0.15, 1.0))
+    editing.connect_material_property(colour, "", unreal.MaterialProperty.MP_BASE_COLOR)
+
+    roughness = editing.create_material_expression(
+        material, unreal.MaterialExpressionConstant, -400, 200)
+    roughness.set_editor_property("r", 0.65)
+    editing.connect_material_property(roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
+
+    editing.recompile_material(material)
+    unreal.EditorAssetLibrary.save_asset(path)
+    lh.log(f"created {path}")
+    return material
+
+
+def fix_sky_lighting():
+    """Give shadowed surfaces real ambient fill.
+
+    Without a capturing SkyLight only the sun-facing faces are lit and everything
+    else renders pure black. Real daylight fills shadows with sky bounce, and a
+    dataset of black-sided vehicles teaches a model a lighting model that does not
+    exist outdoors.
+    """
+    for actor in _editor_actor.get_all_level_actors():
+        if actor.get_class().get_name() != "SkyLight":
+            continue
+        try:
+            actor.set_actor_scale3d(unreal.Vector(1, 1, 1))
+            component = actor.get_editor_property("light_component")
+            component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+            component.set_editor_property("real_time_capture", True)
+            component.set_editor_property("intensity_scale", 1.0)
+            lh.log("skylight set to real-time capture")
+        except Exception as error:
+            # The light Python bindings are inconsistent between versions; say so
+            # rather than leaving a silently unlit scene to be discovered in the data.
+            lh.log(f"WARNING could not configure skylight: {error}")
+
+
 def build_ground(sand, rock):
     lh.spawn_block("Desert_Ground", 0, 0, -100,
                    GROUND_SIZE_CM, GROUND_SIZE_CM, 200, material=sand)
@@ -165,6 +227,8 @@ def main():
 
     lh.prune_props()
 
+    make_vehicle_body_material()
+
     sand = lh.make_color_material("M_Sand", SAND)
     asphalt = lh.make_color_material("M_Asphalt", ASPHALT)
     line = lh.make_color_material("M_RoadLine", LINE_WHITE)
@@ -172,6 +236,7 @@ def main():
 
     build_ground(sand, rock)
     build_road(asphalt, line)
+    fix_sky_lighting()
     build_camera()
     build_director()
 
