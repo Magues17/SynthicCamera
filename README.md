@@ -34,6 +34,37 @@ Each label row carries vehicle identity and geometry, true / commanded / radar s
 the radar cosine angle, the 2D bounding box with validity and clipping flags, camera
 pose, and sun angle.
 
+## Assets
+
+Marketplace content is licensed for use in a project but not for redistribution, so
+it is not committed. A fresh clone needs these added through the editor's Fab browser
+(Window > Fab), which places them at the paths the catalog expects:
+
+| Pack | Lands at | Used for |
+| --- | --- | --- |
+| Vehicle Variety Pack | `Content/VehicleVarietyPack/` | Hatchback, SportsCar, SUV, Pickup, BoxTruck |
+| RTS Combat Vehicle | `Content/Fab/RTS_Combat_Vehicle/` | CombatATV |
+| Sci-fi Armored Vehicle (rigged) | `Content/Fab/Sci_fi_Armored_Vehicle_rigged/` | ArmoredVehicle |
+| Willys mountain buggy | `Content/Fab/Willys_mountain_buggy_1/` | WillysBuggy |
+| ZIL-130 body (lowpoly) | `Content/Fab/ZIL_130__body____Lowpoly/` | ZIL130Truck |
+
+Without them the affected vehicles fall back to proxy boxes and each one warns at
+startup naming the mesh it could not load. The run still completes, so check the log
+rather than trusting that clean output means a complete setup.
+
+After adding assets, confirm what actually landed and how it is oriented:
+
+```
+powershell -File <skill>/scripts/run_ue_python.ps1 -Project SynthicCamera.uproject ^
+    -Script Content/Python/scan_vehicle_meshes.py
+```
+
+That reports every static mesh with its real-world size and pivot. Both matter: several
+packs author the vehicle facing along Y, which drives it sideways down the road while
+reporting entirely sensible dimensions, and some put the pivot at the model centre,
+which buries it half its height in the tarmac. Both are corrected per entry in the
+catalog via `MeshRotation` and `MeshOffsetCm`.
+
 ## Rebuilding
 
 Compile the module, then rebuild the scene. The scene script is idempotent - run it
