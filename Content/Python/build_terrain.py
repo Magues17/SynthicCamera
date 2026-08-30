@@ -39,7 +39,7 @@ RESOLUTION = 200            # vertices per side -> 25m between samples
 CORRIDOR_FLAT_CM = 1800.0   # dead flat out to here: road, shoulders, verge
 CORRIDOR_BLEND_CM = 17000.0 # full relief reached by here
 
-RELIEF_CM = 4200.0          # peak-to-trough of the broadest dunes
+RELIEF_CM = 11000.0         # peak-to-trough of the broadest dunes
 SEED = 20260830
 
 
