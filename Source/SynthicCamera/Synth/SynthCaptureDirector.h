@@ -138,6 +138,16 @@ private:
 	/** Re-roll sun angle and weather, and push ambient and pose to every camera. */
 	void RandomiseScene();
 
+	/**
+	 * Push the same ambient the captures use into the level's post-process volumes.
+	 *
+	 * Without this the viewport keeps whatever fixed value the level was built with
+	 * while the captures vary per pass, so what a person sees on screen is lit
+	 * differently from what the dataset receives. That is not cosmetic: it made a
+	 * correctly-placed rock 24m off the road read as a wall the traffic drove through.
+	 */
+	void MatchViewportAmbient(float AmbientIntensity);
+
 	/** Draw one camera install from CameraPose and apply it. */
 	void RandomiseCameraPose(ASynthSpeedCamera& Camera);
 

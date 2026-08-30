@@ -5,6 +5,7 @@
 #include "Synth/SynthVehicle.h"
 #include "Synth/SynthWeather.h"
 #include "Algo/Count.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Misc/CommandLine.h"
@@ -362,8 +363,20 @@ void ASynthCaptureDirector::RandomiseScene()
 		}
 	}
 
+	MatchViewportAmbient(Preset.AmbientIntensity);
+
 	UE_LOG(LogSynthic, Log, TEXT("Director: %s, sun %.0f deg elevation / %.0f deg bearing, fog %.2f."),
 		*SynthWeather::GetName(Weather), SunPitch, SunYaw, Preset.FogDensity);
+}
+
+void ASynthCaptureDirector::MatchViewportAmbient(float AmbientIntensity)
+{
+	for (TActorIterator<APostProcessVolume> It(GetWorld()); It; ++It)
+	{
+		FPostProcessSettings& Settings = It->Settings;
+		Settings.bOverride_AmbientCubemapIntensity = true;
+		Settings.AmbientCubemapIntensity = AmbientIntensity;
+	}
 }
 
 void ASynthCaptureDirector::RandomiseCameraPose(ASynthSpeedCamera& Camera)
