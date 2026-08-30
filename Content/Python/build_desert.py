@@ -314,8 +314,45 @@ def make_surface_material(name, colour_dark, colour_light, noise_scale,
 
 
 def build_ground(sand, rock):
+    # Flat base plane, 12km across. It is still needed under the heightfield: the
+    # terrain sheet only covers the near field, and without a base the ground would
+    # simply end at its border.
     lh.spawn_block("Desert_Ground", 0, 0, -100,
                    GROUND_SIZE_CM, GROUND_SIZE_CM, 200, material=sand)
+
+    # Heightfield over the visible near field, built by build_terrain.py. Its edges
+    # are damped to zero so it sinks into the base plane with no lip, and its middle
+    # is damped flat so the road corridor stays graded.
+    terrain_mesh = unreal.EditorAssetLibrary.load_asset(
+        "/Game/Synthic/SM_DesertTerrain")
+    if terrain_mesh is None:
+        lh.log("WARNING SM_DesertTerrain missing - run build_terrain.py; "
+               "ground stays flat")
+    else:
+        # Lifted 4cm clear of the base plane. The heightfield damps to zero across
+        # the corridor and at its borders, which put it exactly coplanar with the
+        # plane beneath - the depth buffer then flickered between the two and the
+        # ground broke into hard-edged patches. The resulting lip at the sheet edge is
+        # 4cm at 2.5km, which is nothing.
+        terrain = _editor_actor.spawn_actor_from_class(
+            unreal.StaticMeshActor, unreal.Vector(0.0, 0.0, 4.0),
+            unreal.Rotator(0, 0, 0))
+        terrain.set_actor_label("Desert_Terrain")
+        terrain.tags = ["level"]
+
+        component = terrain.static_mesh_component
+        component.set_static_mesh(terrain_mesh)
+        component.set_mobility(unreal.ComponentMobility.STATIC)
+        try:
+            component.set_material(0, sand)
+        except Exception as error:
+            lh.log("  warn terrain material: %s" % error)
+
+        # Collidable: unlike the old scatter, this is real ground and a dune between
+        # camera and vehicle should register as an occluder.
+        component.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
+        component.set_collision_profile_name("BlockAll")
+        lh.log("placed desert terrain heightfield")
 
     # Background relief so the horizon is not an empty plane. Seeded: the scene must
     # regenerate identically or the dataset is not reproducible.
