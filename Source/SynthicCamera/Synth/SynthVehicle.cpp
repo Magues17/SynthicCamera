@@ -84,6 +84,22 @@ void ASynthVehicle::ApplySpec(const FSynthVehicleSpec& InSpec)
 		CacheVisualBounds();
 		return;
 	}
+	else if (!Spec.Mesh.IsNull())
+	{
+		// The catalog names an asset that is not on disk. Marketplace content is not
+		// committed, so a fresh clone hits this until the packs are re-downloaded.
+		// Without saying so, the vehicle silently becomes a box while the label still
+		// claims a real asset.
+		UE_LOG(LogSynthic, Warning,
+			TEXT("%s: mesh '%s' could not be loaded - falling back to proxy geometry. "
+				 "Re-download the asset pack, or clear Spec.Mesh for this entry."),
+			*Spec.Model, *Spec.Mesh.ToString());
+
+		BuildProxyGeometry();
+		bLiveryApplied = true;
+		CacheVisualBounds();
+		return;
+	}
 	else if (Spec.Parts.Num() > 0)
 	{
 		BuildAssembledGeometry();

@@ -23,3 +23,9 @@ orient_check.png
 military_check.png
 real_mesh_check.png
 capture_vs_player.png
+
+# Marketplace and Fab content. Licensed for use in a project but not for
+# redistribution, so it is downloaded per-developer rather than committed.
+# See README "Assets" for which packs to fetch and where they belong.
+Content/Fab/
+Content/VehicleVarietyPack/
