@@ -46,6 +46,19 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Dataset")
 	int32 RandomSeed = 1337;
 
+	/**
+	 * Give every vehicle class the same number of passes instead of drawing one at
+	 * random each time.
+	 *
+	 * Uniform draws leave the tail classes starved - thirty passes over ten archetypes
+	 * gave one class a single sample and another six, and a class with two archetypes
+	 * drew twice as often as one with a single archetype. Off models realistic traffic
+	 * where cars vastly outnumber tanks; on gives a model enough of every class to
+	 * learn it.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Dataset")
+	bool bBalanceClasses = true;
+
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic", meta = (ClampMin = "1.0"))
 	float MinSpeedKph = 40.0f;
 
@@ -102,6 +115,18 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
 	FSynthCameraPoseRanges CameraPose;
 
+	/**
+	 * Catalog index to use for each pass, balanced across classes.
+	 *
+	 * Classes are filled round-robin so each gets NumPasses/classes samples (the
+	 * remainder going to the earliest classes), archetypes within a class are cycled
+	 * so a class with several does not favour one, and the result is shuffled so the
+	 * order vehicles arrive in does not correlate with the weather and speed drawn
+	 * alongside them. Static and pure so the balance can be checked without a world.
+	 */
+	static TArray<int32> BuildBalancedSchedule(const TArray<ESynthVehicleClass>& EntryClasses,
+		int32 NumPasses, FRandomStream& Stream);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -123,5 +148,8 @@ private:
 	TObjectPtr<ASynthVehicle> ActiveVehicle;
 
 	FRandomStream Stream;
+
+	/** One catalog index per pass, decided up front at BeginPlay. */
+	TArray<int32> PassSchedule;
 	int32 PassesDispatched = 0;
 };

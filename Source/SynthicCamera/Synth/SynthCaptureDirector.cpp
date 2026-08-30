@@ -178,6 +178,51 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 	};
 }
 
+TArray<int32> ASynthCaptureDirector::BuildBalancedSchedule(
+	const TArray<ESynthVehicleClass>& EntryClasses, int32 NumPasses, FRandomStream& Stream)
+{
+	TArray<int32> Schedule;
+	if (EntryClasses.IsEmpty() || NumPasses <= 0)
+	{
+		return Schedule;
+	}
+
+	// Entry indices grouped by class, kept in a sorted class order so the same seed
+	// always produces the same schedule regardless of map iteration order.
+	TMap<ESynthVehicleClass, TArray<int32>> ByClass;
+	for (int32 Index = 0; Index < EntryClasses.Num(); ++Index)
+	{
+		ByClass.FindOrAdd(EntryClasses[Index]).Add(Index);
+	}
+
+	TArray<ESynthVehicleClass> Classes;
+	ByClass.GetKeys(Classes);
+	Classes.Sort([](ESynthVehicleClass A, ESynthVehicleClass B)
+		{ return static_cast<uint8>(A) < static_cast<uint8>(B); });
+
+	TMap<ESynthVehicleClass, int32> Cursor;
+	Schedule.Reserve(NumPasses);
+	for (int32 Pass = 0; Pass < NumPasses; ++Pass)
+	{
+		const ESynthVehicleClass Class = Classes[Pass % Classes.Num()];
+		const TArray<int32>& Entries = ByClass[Class];
+
+		int32& Next = Cursor.FindOrAdd(Class);
+		Schedule.Add(Entries[Next % Entries.Num()]);
+		++Next;
+	}
+
+	// Fisher-Yates on the seeded stream. Without it every class would arrive in the
+	// same rotation, so class would track the weather and speed drawn alongside it and
+	// a model could learn the correlation instead of the vehicle.
+	for (int32 Index = Schedule.Num() - 1; Index > 0; --Index)
+	{
+		Schedule.Swap(Index, Stream.RandRange(0, Index));
+	}
+
+	return Schedule;
+}
+
 void ASynthCaptureDirector::BeginPlay()
 {
 	Super::BeginPlay();
@@ -207,6 +252,33 @@ void ASynthCaptureDirector::BeginPlay()
 	}
 
 	Stream.Initialize(RandomSeed);
+
+	if (bBalanceClasses)
+	{
+		TArray<ESynthVehicleClass> EntryClasses;
+		EntryClasses.Reserve(Catalog.Num());
+		for (const FSynthVehicleSpec& Spec : Catalog)
+		{
+			EntryClasses.Add(Spec.VehicleClass);
+		}
+
+		PassSchedule = BuildBalancedSchedule(EntryClasses, NumPasses, Stream);
+
+		TMap<ESynthVehicleClass, int32> Planned;
+		for (const int32 Index : PassSchedule)
+		{
+			++Planned.FindOrAdd(Catalog[Index].VehicleClass);
+		}
+
+		FString Breakdown;
+		for (const TPair<ESynthVehicleClass, int32>& Pair : Planned)
+		{
+			Breakdown += FString::Printf(TEXT("%s=%d "),
+				*StaticEnum<ESynthVehicleClass>()->GetNameStringByValue(
+					static_cast<int64>(Pair.Key)), Pair.Value);
+		}
+		UE_LOG(LogSynthic, Log, TEXT("Director: balanced schedule - %s"), *Breakdown);
+	}
 	UE_LOG(LogSynthic, Log,
 		TEXT("Director: %d passes, seed %d, speeds %.0f-%.0f km/h, scene randomisation %s (%d conditions)."),
 		NumPasses, RandomSeed, MinSpeedKph, MaxSpeedKph,
@@ -340,7 +412,12 @@ bool ASynthCaptureDirector::DispatchNextVehicle()
 
 	RandomiseScene();
 
-	const FSynthVehicleSpec& Spec = Catalog[Stream.RandRange(0, Catalog.Num() - 1)];
+	// A pre-built schedule when balancing, otherwise an independent draw per pass.
+	const int32 CatalogIndex = PassSchedule.IsValidIndex(PassesDispatched)
+		? PassSchedule[PassesDispatched]
+		: Stream.RandRange(0, Catalog.Num() - 1);
+
+	const FSynthVehicleSpec& Spec = Catalog[CatalogIndex];
 	const float SpeedKph = Stream.FRandRange(MinSpeedKph, MaxSpeedKph);
 	const float LaneOffset = Stream.FRandRange(-LaneJitterCm, LaneJitterCm);
 
