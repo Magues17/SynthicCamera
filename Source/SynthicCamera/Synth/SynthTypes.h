@@ -155,6 +155,21 @@ struct FSynthVehicleSpec
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TSoftObjectPtr<UStaticMesh> Mesh;
 
+	/**
+	 * Correction applied to Mesh before use, for assets not authored to this
+	 * convention: +X forward, pivot at ground contact.
+	 *
+	 * Neither is universal. Several packs author the vehicle facing along Y, which
+	 * drives it sideways down the road, and some put the pivot at the model centre,
+	 * which buries it half its own height in the tarmac. Both are per-asset facts
+	 * that belong in the catalog beside the mesh, not in code.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
+	FRotator MeshRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
+	FVector MeshOffsetCm = FVector::ZeroVector;
+
 	/** Assembled silhouette. Empty falls back to one box sized by DimensionsCm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TArray<FSynthVehiclePart> Parts;

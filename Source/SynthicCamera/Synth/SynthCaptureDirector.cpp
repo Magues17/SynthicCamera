@@ -67,12 +67,13 @@ namespace
 
 TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 {
-	// Assembled silhouettes rather than single boxes. Class is mostly carried by
-	// shape - turret, barrel, tracks, cab position - and two boxes of different
-	// proportions give a model nothing it could carry across to real footage.
+	// Assembled silhouettes, used only where no real asset exists. Every class that
+	// has one now uses it: mixing a detailed mesh and a crude box inside one class
+	// would teach a model that the label means "blocky" rather than what it is.
 	//
-	// Still proxies: no suspension detail, no stowage, no surface texture. Make stays
-	// PROXY so nothing mistakes one for a real vehicle signature.
+	// MBT keeps its proxy because no tank asset was supplied, and a crude class is
+	// less damaging than a missing one. Make stays PROXY so nothing mistakes it for a
+	// real vehicle signature.
 	auto Entry = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims, int32 Axles,
 		bool bTracked, const TCHAR* Livery, FLinearColor Colour, TArray<FSynthVehiclePart> Parts)
 	{
@@ -137,19 +138,26 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 	// come from the scan rather than being typed by hand, so the label matches the
 	// geometry a model actually sees.
 	auto Asset = [](const TCHAR* Model, ESynthVehicleClass Class, FVector Dims,
-		int32 Axles, const TCHAR* MeshPath)
+		int32 Axles, const TCHAR* MeshPath, bool bMilitary = false,
+		FRotator MeshRotation = FRotator::ZeroRotator, FVector MeshOffset = FVector::ZeroVector,
+		const TCHAR* Livery = TEXT("as-authored"),
+		FLinearColor Colour = FLinearColor(0.16f, 0.18f, 0.11f))
 	{
 		FSynthVehicleSpec Spec;
-		Spec.bMilitary = false;
-		Spec.Make = TEXT("CIVILIAN");
+		Spec.bMilitary = bMilitary;
+		Spec.MeshRotation = MeshRotation;
+		Spec.MeshOffsetCm = MeshOffset;
+		Spec.Make = bMilitary ? TEXT("MILITARY") : TEXT("CIVILIAN");
 		Spec.Model = Model;
 		Spec.VehicleClass = Class;
 		Spec.DimensionsCm = Dims;
 		Spec.AxleCount = Axles;
 		Spec.bTracked = false;
 		Spec.Mesh = TSoftObjectPtr<UStaticMesh>(FSoftObjectPath(MeshPath));
-		// Left as-authored: the asset brings its own textured materials.
-		Spec.LiveryName = TEXT("as-authored");
+		// Normally as-authored - the asset brings its own materials. Only used when it
+		// turns out not to have any.
+		Spec.LiveryName = Livery;
+		Spec.LiveryColor = Colour;
 		return Spec;
 	};
 
@@ -165,14 +173,34 @@ TArray<FSynthVehicleSpec> ASynthCaptureDirector::MakeDefaultCatalog()
 		Asset(TEXT("BoxTruck"), ESynthVehicleClass::BoxTruck, FVector(732, 306, 319), 2,
 			TEXT("/Game/VehicleVarietyPack/Meshes/SM_Truck_Box.SM_Truck_Box")),
 
-		Entry(TEXT("LightUtility4x4"), ESynthVehicleClass::LightUtility, FVector(480, 210, 195), 2, false,
-			TEXT("desert-tan"), FLinearColor(0.42f, 0.34f, 0.20f), MoveTemp(Utility)),
-		Entry(TEXT("CargoTruck6x6"), ESynthVehicleClass::CargoTruck, FVector(780, 250, 290), 3, false,
-			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f), MoveTemp(Truck)),
-		Entry(TEXT("WheeledAPC8x8"), ESynthVehicleClass::APC, FVector(780, 290, 270), 4, false,
-			TEXT("nato-green"), FLinearColor(0.13f, 0.20f, 0.14f), MoveTemp(Apc)),
-		Entry(TEXT("TrackedIFV"), ESynthVehicleClass::IFV, FVector(660, 320, 260), 0, true,
-			TEXT("sand-grey"), FLinearColor(0.38f, 0.35f, 0.28f), MoveTemp(Ifv)),
+		// Military assets, all authored facing along Y. The yaw is -90 rather than +90:
+		// at +90 the truck drove down the road tail-first, presenting its cargo bed to
+		// a camera that faces oncoming traffic. Bounds alone cannot distinguish the two
+		// - both give identical dimensions - so this was settled by looking at a frame.
+		//
+		// Dimensions below are post-rotation, which is why length and width read
+		// swapped against the raw scan. The Willys pivot sits at the model centre
+		// rather than ground contact, so it is lifted by half its own height or it
+		// drives buried in the tarmac.
+		Asset(TEXT("WillysBuggy"), ESynthVehicleClass::LightUtility, FVector(422, 273, 229), 2,
+			TEXT("/Game/Fab/Willys_mountain_buggy_1/willys_mountain_buggy_1/StaticMeshes/willys_mountain_buggy_1.willys_mountain_buggy_1"),
+			true, FRotator(0.0, -90.0, 0.0), FVector(0.0, 0.0, 114.0)),
+
+		Asset(TEXT("ZIL130Truck"), ESynthVehicleClass::CargoTruck, FVector(556, 229, 198), 3,
+			TEXT("/Game/Fab/ZIL_130__body____Lowpoly/zil_130_body_lowpoly/StaticMeshes/zil_130_body_lowpoly.zil_130_body_lowpoly"),
+			true, FRotator(0.0, -90.0, 0.0)),
+
+		// This pack ships meshes only - no materials, no textures - so the livery below
+		// is what it actually renders in.
+		Asset(TEXT("CombatATV"), ESynthVehicleClass::APC, FVector(510, 232, 298), 4,
+			TEXT("/Game/Fab/RTS_Combat_Vehicle/atv_n1_le.atv_n1_le"),
+			true, FRotator(0.0, -90.0, 0.0), FVector::ZeroVector,
+			TEXT("nato-green"), FLinearColor(0.13f, 0.20f, 0.14f)),
+
+		Asset(TEXT("ArmoredVehicle"), ESynthVehicleClass::IFV, FVector(794, 301, 222), 4,
+			TEXT("/Game/Fab/Sci_fi_Armored_Vehicle_rigged/armoredvh/StaticMeshes/ArmoredVehicle.ArmoredVehicle"),
+			true, FRotator(0.0, -90.0, 0.0), FVector(0.0, 0.0, 11.0)),
+
 		Entry(TEXT("MainBattleTank"), ESynthVehicleClass::MBT, FVector(990, 370, 245), 0, true,
 			TEXT("olive-drab"), FLinearColor(0.16f, 0.18f, 0.11f), MoveTemp(Mbt))
 	};

@@ -45,7 +45,8 @@ void ASynthVehicle::ApplySpec(const FSynthVehicleSpec& InSpec)
 		// livery over it would replace textured bodywork, glass and tyres with one
 		// flat colour, which is worse than the proxy it replaced.
 		VehicleMesh->SetStaticMesh(Authored);
-		VehicleMesh->SetRelativeLocation(FVector::ZeroVector);
+		VehicleMesh->SetRelativeRotation(Spec.MeshRotation);
+		VehicleMesh->SetRelativeLocation(Spec.MeshOffsetCm);
 		VehicleMesh->SetRelativeScale3D(FVector::OneVector);
 
 		for (UStaticMeshComponent* Old : PartMeshes)
@@ -56,6 +57,29 @@ void ASynthVehicle::ApplySpec(const FSynthVehicleSpec& InSpec)
 			}
 		}
 		PartMeshes.Reset();
+
+		// Some packs ship meshes with no materials at all, which render in the engine's
+		// default grey. Correct silhouette, but a fleet of white vehicles would teach a
+		// model that the colour is part of the class. Fall back to the livery, and say
+		// so, rather than shipping the default.
+		bool bHasMaterial = false;
+		for (int32 Slot = 0; Slot < VehicleMesh->GetNumMaterials(); ++Slot)
+		{
+			if (VehicleMesh->GetMaterial(Slot) != nullptr)
+			{
+				bHasMaterial = true;
+				break;
+			}
+		}
+
+		if (!bHasMaterial)
+		{
+			UE_LOG(LogSynthic, Warning,
+				TEXT("%s: asset ships no materials, tinting with livery '%s' instead of "
+					 "rendering default grey."), *Spec.Model, *Spec.LiveryName);
+			ApplyLivery(*VehicleMesh, 1.0f);
+			bLiveryApplied = true;
+		}
 
 		CacheVisualBounds();
 		return;
@@ -149,10 +173,18 @@ void ASynthVehicle::CacheVisualBounds()
 		// Single mesh: its own bounds, expressed relative to the root.
 		if (const UStaticMesh* Mesh = VehicleMesh->GetStaticMesh())
 		{
+			// Transform the whole box rather than offsetting its centre: a corrective
+			// yaw swaps length and width, and carrying the untransformed extent through
+			// would leave every box for a rotated asset the wrong shape.
 			const FBoxSphereBounds Local = Mesh->GetBounds();
-			const FVector Scale = VehicleMesh->GetRelativeScale3D();
-			LocalBoundsCentre = VehicleMesh->GetRelativeLocation() + (Local.Origin * Scale);
-			LocalBoundsExtent = Local.BoxExtent * Scale;
+			const FBox LocalBox(Local.Origin - Local.BoxExtent, Local.Origin + Local.BoxExtent);
+			const FBox Corrected = LocalBox.TransformBy(FTransform(
+				VehicleMesh->GetRelativeRotation(),
+				VehicleMesh->GetRelativeLocation(),
+				VehicleMesh->GetRelativeScale3D()));
+
+			LocalBoundsCentre = Corrected.GetCenter();
+			LocalBoundsExtent = Corrected.GetExtent();
 			return;
 		}
 
