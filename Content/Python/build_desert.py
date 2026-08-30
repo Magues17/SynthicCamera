@@ -33,8 +33,13 @@ import level_helpers as lh
 LEVEL_PATH = "/Game/Synthic/Lvl_Desert"
 
 # --- Scene geometry -------------------------------------------------------------
-GROUND_SIZE_CM = 80000.0
-ROAD_LENGTH_CM = 40000.0
+# The ground has to outrun visibility or its far edge shows as a hard line against
+# the sky - and the randomised camera roll tilts that line, which makes it read as a
+# seam rather than a horizon. 800m failed, 3km still failed in clear weather; 12km
+# puts the edge past where any of the fog presets can be seen through. The road
+# follows suit: a carriageway that simply stops mid-desert is just as obvious.
+GROUND_SIZE_CM = 1200000.0
+ROAD_LENGTH_CM = 140000.0
 ROAD_WIDTH_CM = 800.0
 ROAD_SURFACE_Z = 6.0            # road deck sits just proud of the sand
 
@@ -172,6 +177,23 @@ def match_viewport_to_captures():
     lh.log("viewport ambient matched to captures")
 
 
+def remove_volumetric_clouds():
+    """Delete the template's volumetric cloud layer.
+
+    A camera at road level looks along the horizon, where the cloud layer's flat base
+    cuts the sky as a hard straight seam - and the randomised camera roll tilts it, so
+    it reads as a polygon edge rather than weather. Physically it is a cloud base;
+    visually it is the most artificial thing left in frame.
+
+    The sky atmosphere still supplies colour and horizon gradient, so what is lost is
+    cloud detail in the upper sky, which no capture is aimed at.
+    """
+    for actor in _editor_actor.get_all_level_actors():
+        if actor.get_class().get_name() == "VolumetricCloud":
+            _editor_actor.destroy_actor(actor)
+            lh.log("removed volumetric cloud layer")
+
+
 def remove_stray_directional_lights():
     """Delete every directional light except the template's own.
 
@@ -219,33 +241,151 @@ def report_directional_lights():
     return lights
 
 
+def make_surface_material(name, colour_dark, colour_light, noise_scale,
+                          rough_min, rough_max, specular=0.3, folder="/Game/Materials"):
+    """A ground surface with procedural variation rather than one flat colour.
+
+    A single Constant3Vector into BaseColor is what makes untextured geometry read as
+    modelling clay: no colour break-up and a uniform default roughness, so every face
+    returns the same value and the eye gets no surface cue at all.
+
+    Noise drives colour and roughness together here, which is what sells sand as sand.
+    Deliberately procedural rather than texture-based - the texture packs are not
+    committed, and a material that breaks on a fresh clone is worse than a plain one.
+    """
+    path = folder + "/" + name
+    if not unreal.EditorAssetLibrary.does_directory_exist(folder):
+        unreal.EditorAssetLibrary.make_directory(folder)
+
+    editing = unreal.MaterialEditingLibrary
+
+    # Rewire in place rather than delete and recreate. Once the level references a
+    # material, deleting it fails silently and the create that follows then errors -
+    # so a rebuild worked exactly once and broke on every run after.
+    if unreal.EditorAssetLibrary.does_asset_exist(path):
+        material = unreal.EditorAssetLibrary.load_asset(path)
+        editing.delete_all_material_expressions(material)
+    else:
+        material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            name, folder, unreal.Material, unreal.MaterialFactoryNew())
+
+    def node(cls, x, y):
+        return editing.create_material_expression(material, cls, x, y)
+
+    noise = node(unreal.MaterialExpressionNoise, -900, 0)
+    noise.set_editor_property("scale", noise_scale)
+    noise.set_editor_property("levels", 4)
+    noise.set_editor_property("output_min", 0.0)
+    noise.set_editor_property("output_max", 1.0)
+    noise.set_editor_property("turbulence", True)
+
+    dark = node(unreal.MaterialExpressionConstant3Vector, -620, -180)
+    dark.set_editor_property("constant", unreal.LinearColor(
+        colour_dark[0], colour_dark[1], colour_dark[2], 1.0))
+    light = node(unreal.MaterialExpressionConstant3Vector, -620, -60)
+    light.set_editor_property("constant", unreal.LinearColor(
+        colour_light[0], colour_light[1], colour_light[2], 1.0))
+
+    colour = node(unreal.MaterialExpressionLinearInterpolate, -320, -120)
+    editing.connect_material_expressions(dark, "", colour, "A")
+    editing.connect_material_expressions(light, "", colour, "B")
+    editing.connect_material_expressions(noise, "", colour, "Alpha")
+    editing.connect_material_property(colour, "", unreal.MaterialProperty.MP_BASE_COLOR)
+
+    low = node(unreal.MaterialExpressionConstant, -620, 120)
+    low.set_editor_property("r", rough_min)
+    high = node(unreal.MaterialExpressionConstant, -620, 200)
+    high.set_editor_property("r", rough_max)
+
+    roughness = node(unreal.MaterialExpressionLinearInterpolate, -320, 160)
+    editing.connect_material_expressions(low, "", roughness, "A")
+    editing.connect_material_expressions(high, "", roughness, "B")
+    editing.connect_material_expressions(noise, "", roughness, "Alpha")
+    editing.connect_material_property(roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
+
+    spec = node(unreal.MaterialExpressionConstant, -620, 300)
+    spec.set_editor_property("r", specular)
+    editing.connect_material_property(spec, "", unreal.MaterialProperty.MP_SPECULAR)
+
+    editing.recompile_material(material)
+    unreal.EditorAssetLibrary.save_asset(path)
+    lh.log("built surface material " + path)
+    return material
+
+
 def build_ground(sand, rock):
     lh.spawn_block("Desert_Ground", 0, 0, -100,
                    GROUND_SIZE_CM, GROUND_SIZE_CM, 200, material=sand)
 
     # Background relief so the horizon is not an empty plane. Seeded: the scene must
     # regenerate identically or the dataset is not reproducible.
+    #
+    # Spheres crushed on one axis and tilted, not boxes. Axis-aligned cubes read as
+    # masonry - they were mistaken for a wall the traffic drove through - and nothing
+    # in a desert has four vertical faces and a flat top.
+    sphere = unreal.load_asset("/Engine/BasicShapes/Sphere.Sphere")
     stream = random.Random(20260829)
-    for index in range(24):
-        x = stream.uniform(-30000, 30000)
-        y = stream.uniform(-30000, 30000)
-        if abs(y) < ROAD_WIDTH_CM * 2:
-            continue                                    # keep the carriageway clear
-        size = stream.uniform(300, 1400)
-        lh.spawn_block(f"Rock_{index:02d}", x, y, size * 0.25,
-                       size, size * 0.8, size * 0.5, material=rock)
+
+    for index in range(90):
+        x = stream.uniform(-160000, 160000)
+        y = stream.uniform(-160000, 160000)
+        if abs(y) < ROAD_WIDTH_CM * 3:
+            continue                            # keep well clear of the carriageway
+
+        size = stream.uniform(260, 1500)
+        # Squashed and stretched independently so no two share a silhouette, and sunk
+        # so they read as outcrops emerging from sand rather than balls resting on it.
+        scale = unreal.Vector(size / 100.0,
+                              size / 100.0 * stream.uniform(0.55, 1.05),
+                              size / 100.0 * stream.uniform(0.30, 0.62))
+        sink = size * stream.uniform(0.10, 0.26)
+
+        actor = _editor_actor.spawn_actor_from_class(
+            unreal.StaticMeshActor, unreal.Vector(x, y, -sink),
+            unreal.Rotator(stream.uniform(-14, 14), stream.uniform(0, 360),
+                           stream.uniform(-14, 14)))
+        actor.set_actor_label("Rock_%02d" % index)
+        actor.tags = ["level"]
+
+        component = actor.static_mesh_component
+        component.set_static_mesh(sphere)
+        actor.set_actor_scale3d(scale)
+        component.set_mobility(unreal.ComponentMobility.STATIC)
+        try:
+            component.set_material(0, rock)
+        except Exception as error:
+            lh.log("  warn rock material: %s" % error)
+        component.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
+        component.set_collision_profile_name("BlockAll")
 
 
 def build_road(asphalt, line):
     lh.spawn_block("Road_Deck", 0, 0, ROAD_SURFACE_Z,
                    ROAD_LENGTH_CM, ROAD_WIDTH_CM, 20, material=asphalt)
 
-    # ponytail: solid edge lines only. Dashed centre markings matter if you ever want
-    # secondary speed verification from marking transit time - add that loop then.
+    # Graded shoulders either side. Without them the tarmac is a slab dropped on sand
+    # with a hard edge running to the horizon, which is the most artificial line in
+    # the whole scene.
+    shoulder = ROAD_WIDTH_CM * 0.5 + 130
+    for name, y in (("Road_ShoulderL", -shoulder), ("Road_ShoulderR", shoulder)):
+        lh.spawn_block(name, 0, y, ROAD_SURFACE_Z - 8,
+                       ROAD_LENGTH_CM, 260, 16, material=asphalt, collision=False)
+
     edge = ROAD_WIDTH_CM * 0.5 - 25.0
     for name, y in (("Road_EdgeL", -edge), ("Road_EdgeR", edge)):
         lh.spawn_block(name, 0, y, ROAD_SURFACE_Z + 12,
                        ROAD_LENGTH_CM, 14, 6, material=line, collision=False)
+
+    # Dashed centreline. Beyond looking right, the dashes give the fog presets
+    # something regular to fall off against, and they are the reference a real
+    # installation uses to verify speed from marking transit time.
+    dash, gap = 300.0, 900.0
+    count = int(ROAD_LENGTH_CM // (dash + gap))
+    start = -ROAD_LENGTH_CM * 0.5 + gap
+    for index in range(count):
+        lh.spawn_block("Road_Dash_%02d" % index,
+                       start + index * (dash + gap), 0, ROAD_SURFACE_Z + 12,
+                       dash, 12, 6, material=line, collision=False)
 
 
 def build_camera():
@@ -308,13 +448,22 @@ def main():
 
     make_vehicle_body_material()
 
-    sand = lh.make_color_material("M_Sand", SAND)
-    asphalt = lh.make_color_material("M_Asphalt", ASPHALT)
-    line = lh.make_color_material("M_RoadLine", LINE_WHITE)
-    rock = lh.make_color_material("M_Rock", ROCK)
+    # Noise scales are in world units: coarse drift across the dunes, fine grain on
+    # the tarmac. The roughness ranges keep every surface matte - the 0.5 default
+    # gives sand an unearned sheen that reads as plastic.
+    sand = make_surface_material("M_Sand", (0.52, 0.43, 0.28), (0.80, 0.70, 0.50),
+                                 0.0012, 0.86, 0.97)
+    asphalt = make_surface_material("M_Asphalt", (0.030, 0.030, 0.034),
+                                    (0.085, 0.085, 0.092), 0.0180, 0.62, 0.84,
+                                    specular=0.42)
+    rock = make_surface_material("M_Rock", (0.20, 0.16, 0.12), (0.46, 0.39, 0.30),
+                                 0.0060, 0.78, 0.94)
+    line = make_surface_material("M_RoadLine", (0.62, 0.61, 0.56), (0.86, 0.85, 0.80),
+                                 0.0300, 0.55, 0.75, specular=0.5)
 
     build_ground(sand, rock)
     build_road(asphalt, line)
+    remove_volumetric_clouds()
     remove_stray_directional_lights()
     match_viewport_to_captures()
     build_camera()
