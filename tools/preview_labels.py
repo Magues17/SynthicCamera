@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw
 
 BOX_COLOUR = (0, 255, 128)
 CLIPPED_COLOUR = (255, 190, 0)
+OTHER_COLOUR = (120, 170, 255)
 
 # Mean-channel separation below which the target is not meaningfully visible.
 # Eyeballed against the fog presets, not derived - retune if the presets change.
@@ -70,23 +71,40 @@ def annotate(row, run_dir, preview_dir):
 
     image = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(image)
-    geometry = row["geometry"]
-    box = geometry.get("bbox_xywh")
 
-    if box:
-        colour = CLIPPED_COLOUR if geometry.get("bbox_clipped") else BOX_COLOUR
+    for index, obj in enumerate(row.get("objects", [])):
+        geometry = obj["geometry"]
+        box = geometry.get("bbox_xywh")
+        if not box:
+            continue
+
+        # The trigger is drawn in the accent colour and everything else dimmer, so a
+        # frame that happens to contain four vehicles still shows which one the
+        # shutter fired for.
+        if obj.get("triggered_capture"):
+            colour = CLIPPED_COLOUR if geometry.get("bbox_clipped") else BOX_COLOUR
+            width = 3
+        else:
+            colour = OTHER_COLOUR
+            width = 2
+
         draw.rectangle(
             [box["x"], box["y"], box["x"] + box["w"], box["y"] + box["h"]],
-            outline=colour, width=3)
-        row["_contrast"] = target_contrast(image, box)
+            outline=colour, width=width)
 
-    vehicle = row["vehicle"]
-    kinematics = row["kinematics"]
-    caption = (f'{vehicle["class"]} {vehicle["model"]}  '
-               f'{kinematics["speed_kph_true"]:.1f} km/h true / '
-               f'{kinematics["speed_kph_radar"]:.1f} radar  '
-               f'({kinematics["cosine_angle_deg"]:.0f} deg off-axis)')
-    draw.text((10, 10), caption, fill=(255, 255, 255))
+        vehicle = obj["vehicle"]
+        kinematics = obj["kinematics"]
+        visible = obj.get("visibility", {}).get("visible_fraction", 1.0)
+        label = (f'{vehicle["class"]} {kinematics["speed_kph_true"]:.0f}km/h'
+                 f'{"" if visible >= 0.999 else f" {visible*100:.0f}%vis"}')
+        draw.text((box["x"] + 3, max(2.0, box["y"] - 12)), label, fill=colour)
+
+        obj["_contrast"] = target_contrast(image, box)
+
+    scene = row["scene"]
+    draw.text((10, 10),
+              f'frame {row["frame_id"]}  {scene["weather"]}  '
+              f'{len(row.get("objects", []))} object(s)', fill=(255, 255, 255))
 
     image.save(preview_dir / f'preview_{row["image_file"]}')
     return None
@@ -108,22 +126,27 @@ def main():
     problems = [message for message in (annotate(r, run_dir, preview_dir) for r in rows) if message]
 
     scenes = Counter(r["scene"].get("weather", "unspecified") for r in rows)
-    classes = Counter(r["vehicle"]["class"] for r in rows)
-    valid = sum(1 for r in rows if r["geometry"]["bbox_valid"])
-    clipped = sum(1 for r in rows if r["geometry"]["bbox_clipped"])
-    speeds = [r["kinematics"]["speed_kph_true"] for r in rows]
+    objects = [o for r in rows for o in r.get("objects", [])]
+    per_frame = [len(r.get("objects", [])) for r in rows]
 
-    print(f"samples        : {len(rows)}")
-    print(f"bbox valid     : {valid}/{len(rows)}")
+    scenes = Counter(r["scene"].get("weather", "unspecified") for r in rows)
+    classes = Counter(o["vehicle"]["class"] for o in objects)
+    valid = sum(1 for o in objects if o["geometry"]["bbox_valid"])
+    clipped = sum(1 for o in objects if o["geometry"]["bbox_clipped"])
+    speeds = [o["kinematics"]["speed_kph_true"] for o in objects]
+    triggers = sum(1 for o in objects if o.get("triggered_capture"))
+
+    print(f"frames         : {len(rows)}")
+    print(f"objects        : {len(objects)}  ({min(per_frame)}-{max(per_frame)} per frame, "
+          f"{len(objects)/max(len(rows),1):.1f} mean)")
+    print(f"triggers       : {triggers}")
+    print(f"bbox valid     : {valid}/{len(objects)}")
     print(f"bbox clipped   : {clipped}")
     if speeds:
         print(f"speed range    : {min(speeds):.1f} - {max(speeds):.1f} km/h")
     print(f"class balance  : {dict(classes)}")
     print(f"weather        : {dict(scenes)}")
 
-    # Randomisation coverage. A range that has collapsed to a single value means the
-    # labels claim variation the images do not have, which is the failure mode worth
-    # catching here - it is invisible in any single sample.
     for field, label in (("sun_pitch_deg", "sun elevation"), ("sun_yaw_deg", "sun bearing"),
                          ("sun_intensity", "sun intensity"), ("fog_density", "fog density"),
                          ("ambient_intensity", "ambient")):
@@ -135,37 +158,36 @@ def main():
         else:
             print(f"{label:14s} : {min(values):.2f} to {max(values):.2f}")
 
-    # Framing check. Camera position, aim direction and the trip plane are set
-    # together; if they ever drift apart the boxes stay geometrically valid but march
-    # off toward an edge. A centre offset that creeps up is the visible symptom.
-    offsets = []
-    for r in rows:
-        box = r["geometry"].get("bbox_xywh")
-        if not box:
-            continue
-        cx = (box["x"] + box["w"] / 2) / r["image_width"]
-        cy = (box["y"] + box["h"] / 2) / r["image_height"]
-        offsets.append(max(abs(cx - 0.5), abs(cy - 0.5)) * 2)
-    if offsets:
-        print(f"framing offset : {min(offsets):.2f} to {max(offsets):.2f} "
-              f"(0 = centred, 1 = at frame edge)")
+    # Occlusion is the reason multi-vehicle traffic exists. If this stays at zero the
+    # vehicles are not actually getting in each other's way.
+    occluded = [o for o in objects if o.get("visibility", {}).get("occluded")]
+    fractions = [o["visibility"]["visible_fraction"] for o in objects if "visibility" in o]
+    if fractions:
+        print(f"occluded       : {len(occluded)}/{len(objects)} objects "
+              f"(visible fraction {min(fractions):.2f} to {max(fractions):.2f})")
 
-    sizes = [r["geometry"]["bbox_xywh"]["w"] * r["geometry"]["bbox_xywh"]["h"] /
+    sizes = [o["geometry"]["bbox_xywh"]["w"] * o["geometry"]["bbox_xywh"]["h"] /
              (r["image_width"] * r["image_height"])
-             for r in rows if r["geometry"].get("bbox_xywh")]
+             for r in rows for o in r.get("objects", []) if o["geometry"].get("bbox_xywh")]
     if sizes:
         print(f"target size    : {min(sizes)*100:.1f}% to {max(sizes)*100:.1f}% of frame")
 
-    contrasts = [r["_contrast"] for r in rows if "_contrast" in r]
-    if contrasts:
-        faint = [r for r in rows if r.get("_contrast", 99) < LOW_CONTRAST]
-        print(f"target contrast: {min(contrasts):.1f} to {max(contrasts):.1f}")
+    # Contrast now comes from the engine, measured on the frame it rendered. The
+    # locally recomputed value is kept only as a cross-check that the two agree.
+    engine = [o["visibility"]["contrast"] for o in objects
+              if "contrast" in o.get("visibility", {})]
+    if engine:
+        faint = [o for o in objects
+                 if o.get("visibility", {}).get("contrast", 99) < LOW_CONTRAST]
+        print(f"target contrast: {min(engine):.1f} to {max(engine):.1f}  (from labels)")
         if faint:
-            print(f"                 {len(faint)} sample(s) below {LOW_CONTRAST} - target barely "
-                  f"separable from background, consider dropping or capping fog:")
-            for r in faint:
-                print(f"                   {r['image_file']}  {r['scene']['weather']} "
-                      f"fog {r['scene'].get('fog_density', 0):.2f}  contrast {r['_contrast']:.1f}")
+            print(f"                 {len(faint)} object(s) below {LOW_CONTRAST} - barely "
+                  f"separable; filter on visibility.contrast when training")
+
+    local = [o["_contrast"] for o in objects if "_contrast" in o]
+    if local and engine and len(local) == len(engine):
+        drift = max(abs(a - b) for a, b in zip(sorted(local), sorted(engine)))
+        print(f"contrast agree : within {drift:.1f} of the engine's own measurement")
 
     print(f"previews       : {preview_dir}")
     for message in problems:

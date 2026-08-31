@@ -147,9 +147,16 @@ def main():
             (args.out / "json" / f"{stem}.json").write_text(
                 json.dumps(row, indent=2) + "\n", encoding="utf-8")
         if want_csv:
-            flat = {}
-            flatten("", row, flat)
-            flat_rows.append(flat)
+            # One CSV row per object, with the frame's fields repeated. A frame with
+            # three vehicles cannot be one row without inventing numbered columns that
+            # no loader would know how to read back.
+            frame_fields = {k: v for k, v in row.items() if k != "objects"}
+            for obj in row.get("objects", []) or [None]:
+                flat = {}
+                flatten("", frame_fields, flat)
+                if obj is not None:
+                    flatten("", obj, flat)
+                flat_rows.append(flat)
 
     if want_csv and flat_rows:
         columns = list(dict.fromkeys(key for row in flat_rows for key in row))
@@ -167,8 +174,10 @@ def main():
     if want_csv:
         print(f"  annotations.csv  {len(flat_rows)} rows x {len(columns)} columns")
 
-    occluded = sum(1 for r in rows if r.get("visibility", {}).get("occluded"))
-    unseen = sum(1 for r in rows if not r.get("visibility", {}).get("camera_can_see", True))
+    objects = [o for r in rows for o in r.get("objects", [])]
+    occluded = sum(1 for o in objects if o.get("visibility", {}).get("occluded"))
+    unseen = sum(1 for o in objects if not o.get("visibility", {}).get("camera_can_see", True))
+    print(f"  objects     {len(objects)} across {len(rows)} frames")
     print(f"  occluded    {occluded}")
     print(f"  not visible {unseen}")
 

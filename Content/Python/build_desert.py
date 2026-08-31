@@ -65,7 +65,12 @@ RUN_SETTINGS = {
     # Start line to camera is 13200cm; stop just past it rather than driving on into
     # empty desert, which is pure wall-clock after the photo is already taken.
     "travel_distance_cm": 15000.0,
-    "lane_jitter_cm": 150.0,
+    # Lane discipline, not a wide scatter. With +/-150 wander against lane centres
+    # 190cm apart the two lanes overlapped around the centreline, and vehicles 2-3.7m
+    # wide could be released 80cm apart - driving through each other.
+    "lane_jitter_cm": 55.0,
+    "max_concurrent_vehicles": 4,
+    "min_headway_cm": 2600.0,
 
     # Domain randomisation. Sun elevation is negative-is-downward, so -80 is near
     # overhead and -12 is a low raking sun; the full yaw circle decides which faces

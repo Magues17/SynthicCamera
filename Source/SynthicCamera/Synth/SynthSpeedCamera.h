@@ -103,6 +103,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Capture")
 	bool bShowTripPlane = true;
 
+	/**
+	 * Smallest box, in pixels of area, that earns a label.
+	 *
+	 * Labelling every vehicle in shot means distant ones arrive as a handful of
+	 * pixels. Those are not detections, they are noise with a confident annotation
+	 * attached, and a detector penalised for missing them learns to chase specks.
+	 * Set to 0 to label everything on screen.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Capture", meta = (ClampMin = "0.0"))
+	float MinObjectAreaPx = 260.0f;
+
 	/** Leave empty to name the run from the wall clock at BeginPlay. */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Capture")
 	FString RunName;
@@ -126,9 +137,31 @@ private:
 	void ApplyAmbientLighting();
 	void ResolveRunDirectory();
 	FMatrix BuildViewProjectionMatrix() const;
-	TSharedRef<class FJsonObject> BuildLabel(const ASynthVehicle& Vehicle,
-		const struct FSynthProjectedBox& Projected, float VisibleFraction,
-		const FString& ImageFileName) const;
+	/**
+	 * One row describing the whole frame, with an entry for every vehicle visible in
+	 * it - not just the one that tripped the shutter.
+	 *
+	 * With several vehicles on the road a frame routinely contains more than one. A
+	 * row naming only the trigger would leave the others as unlabelled objects, which
+	 * teaches a detector that those pixels are background.
+	 */
+	TSharedRef<class FJsonObject> BuildFrameLabel(const ASynthVehicle& Trigger,
+		const TArray<FColor>& Pixels, const FString& ImageFileName) const;
+
+	/**
+	 * How far the object's mean colour sits from the background just outside it, in
+	 * 0-255 units, measured on the frame that was actually rendered.
+	 *
+	 * A box can be geometrically perfect while the vehicle has washed out into dust.
+	 * Recording separability alongside the box is what lets a consumer drop those
+	 * without re-reading every image - the geometry alone cannot tell them apart.
+	 */
+	static float MeasureContrast(const TArray<FColor>& Pixels, int32 Width, int32 Height,
+		const struct FSynthScreenBox& Box);
+
+	/** One object entry, or null when the vehicle is not on screen. */
+	TSharedPtr<class FJsonObject> BuildObjectEntry(const ASynthVehicle& Vehicle,
+		const TArray<FColor>& Pixels, bool bTriggered) const;
 
 	UPROPERTY(VisibleAnywhere, Category = "Synthic")
 	TObjectPtr<USceneCaptureComponent2D> CaptureComponent;

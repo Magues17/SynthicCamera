@@ -73,9 +73,27 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic", meta = (ClampMin = "100.0"))
 	float TravelDistanceCm = 15000.0f;
 
-	/** Lateral spread about the start line, in centimetres - lane position variation. */
+	/**
+	 * How many vehicles may be on the road at once.
+	 *
+	 * One at a time meant nothing could ever occlude anything, so the visibility
+	 * fields were constant and carried no information. It also wasted the road: a
+	 * vehicle drove 150m to produce a single frame.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic", meta = (ClampMin = "1"))
+	int32 MaxConcurrentVehicles = 4;
+
+	/** Minimum gap before the next vehicle is released, in centimetres. */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic", meta = (ClampMin = "100.0"))
+	float MinHeadwayCm = 2600.0f;
+
+	/** Lane centres relative to the road centreline. Empty means a single lane. */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic")
-	float LaneJitterCm = 150.0f;
+	TArray<float> LaneOffsetsCm;
+
+	/** Lateral wander within a lane, in centimetres. */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Traffic")
+	float LaneJitterCm = 55.0f;
 
 	/** Re-roll sun angle and weather before every pass. Off gives one fixed condition. */
 	UPROPERTY(EditAnywhere, Category = "Synthic|Randomisation")
@@ -136,7 +154,7 @@ private:
 	static TArray<FSynthVehicleSpec> MakeDefaultCatalog();
 
 	/** Re-roll sun angle and weather, and push ambient and pose to every camera. */
-	void RandomiseScene();
+	void RandomiseScene(bool bAllowCameraMove);
 
 	/**
 	 * Push the same ambient the captures use into the level's post-process volumes.
@@ -151,11 +169,24 @@ private:
 	/** Draw one camera install from CameraPose and apply it. */
 	void RandomiseCameraPose(ASynthSpeedCamera& Camera);
 
-	/** Spawn the next randomised vehicle at the start line. Returns false when done. */
+	/** Retire anything that has driven its distance. */
+	void RetireFinishedVehicles();
+
+	/** True once the last release has opened enough gap for the next. */
+	bool HasHeadway() const;
+
+	/** Spawn the next scheduled vehicle at the start line. Returns false when done. */
 	bool DispatchNextVehicle();
 
+	/** Everything currently on the road, oldest first. */
 	UPROPERTY(Transient)
-	TObjectPtr<ASynthVehicle> ActiveVehicle;
+	TArray<TObjectPtr<ASynthVehicle>> ActiveVehicles;
+
+	/** Most recent release, used to hold the headway gap. */
+	UPROPERTY(Transient)
+	TWeakObjectPtr<ASynthVehicle> LastReleased;
+
+	bool bRunFinished = false;
 
 	FRandomStream Stream;
 

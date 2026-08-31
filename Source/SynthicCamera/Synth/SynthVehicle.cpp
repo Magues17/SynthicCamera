@@ -26,10 +26,13 @@ ASynthVehicle::ASynthVehicle()
 	VehicleMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VehicleMesh"));
 	VehicleMesh->SetupAttachment(VehicleRoot);
 
-	// Query-only: the camera's trigger needs to see it, but nothing needs to be blocked.
+	// Query-only, and blocking on Visibility specifically. OverlapAllDynamic overlaps
+	// every channel and blocks none, and a line trace only registers blocking hits -
+	// so vehicles were invisible to the camera's occlusion trace and every object came
+	// back 100% visible no matter how many were stacked in front of each other.
 	VehicleMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	VehicleMesh->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
-	VehicleMesh->SetGenerateOverlapEvents(true);
+	VehicleMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+	VehicleMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	VehicleMesh->SetMobility(EComponentMobility::Movable);
 }
 
@@ -161,7 +164,11 @@ void ASynthVehicle::BuildAssembledGeometry()
 		Component->SetRelativeRotation(Part.Rotation);
 		Component->SetRelativeLocation(Part.OffsetCm);
 
-		Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		// Assembled parts must occlude too, or a proxy vehicle in front of a real one
+		// would let the trace straight through it.
+		Component->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		Component->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Component->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 		Component->SetMobility(EComponentMobility::Movable);
 
 		ApplyLivery(*Component, Part.ColorScale);
