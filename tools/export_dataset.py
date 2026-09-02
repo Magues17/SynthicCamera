@@ -7,9 +7,18 @@ Produces, alongside each other so a frame and its annotation are always findable
 from one another by name:
 
     exported/images/frame_000000.png
-    exported/yaml/frame_000000.yaml
-    exported/json/frame_000000.json      (--format json|all)
-    exported/annotations.csv             (--format csv|all)
+    exported/labels/frame_000000.txt     YOLO: class cx cy w h, normalised
+    exported/data.yaml                   YOLO class map
+    exported/classes.txt
+    exported/annotations_coco.json       COCO instances
+    exported/yaml/frame_000000.yaml      full label, every field
+    exported/json/frame_000000.json
+    exported/annotations.csv             one row per object
+
+YOLO and COCO are here because the full label is not loadable by any trainer as-is.
+They carry the boxes; the yaml/json keep everything the pipeline knows - speed, radar
+reading, cosine angle, 3D cuboid corners, scene conditions - which no detection format
+has a place for.
 
 The camera writes PNG plus one JSONL line per pass; this turns that into per-frame
 files. Kept as a separate step rather than written by the engine because the run is
@@ -21,6 +30,17 @@ import csv
 import json
 import shutil
 from pathlib import Path
+
+# Fixed order so a class always maps to the same id. Deriving ids from whatever
+# classes happen to appear in a run would renumber everything the first time a run
+# contains no tanks, silently relabelling an entire dataset.
+CLASS_ORDER = [
+    "LightUtility", "CargoTruck", "APC", "IFV", "MBT",
+    "Car", "SUV", "Pickup", "BoxTruck",
+]
+CLASS_ID = {name: index for index, name in enumerate(CLASS_ORDER)}
+
+NEWLINE = chr(10)
 
 # Nesting depth is bounded and the schema is known, so a tiny emitter beats adding a
 # PyYAML dependency for one output format.
@@ -73,6 +93,125 @@ def scalar(value):
         return text
 
 
+def write_yolo(rows, out_dir, min_contrast, min_visible):
+    """One text file per image: class_id cx cy w h, all normalised 0-1.
+
+    YOLO has no way to mark an annotation as ignore, so anything not worth training
+    on has to be dropped here rather than flagged. What gets dropped is reported,
+    because a filter that silently removes a third of the data is indistinguishable
+    from a bug.
+    """
+    labels = out_dir / "labels"
+    labels.mkdir(parents=True, exist_ok=True)
+
+    written = dropped = 0
+    for row in rows:
+        width, height = row["image_width"], row["image_height"]
+        lines = []
+
+        for obj in row.get("objects", []):
+            box = obj["geometry"].get("bbox_xywh")
+            if not box:
+                continue
+
+            visibility = obj.get("visibility", {})
+            if visibility.get("contrast", 99.0) < min_contrast:
+                dropped += 1
+                continue
+            if visibility.get("visible_fraction", 1.0) < min_visible:
+                dropped += 1
+                continue
+
+            class_id = CLASS_ID.get(obj["vehicle"]["class"])
+            if class_id is None:
+                dropped += 1
+                continue
+
+            # YOLO wants centre and size as fractions of the image.
+            cx = (box["x"] + box["w"] / 2) / width
+            cy = (box["y"] + box["h"] / 2) / height
+            lines.append(f'{class_id} {cx:.6f} {cy:.6f} '
+                         f'{box["w"] / width:.6f} {box["h"] / height:.6f}')
+            written += 1
+
+        stem = f"frame_{row['frame_id']:06d}"
+        # Written even when empty: YOLO treats a missing file as unlabelled rather
+        # than as a background image, which is not the same thing.
+        body = NEWLINE.join(lines)
+        if lines:
+            body += NEWLINE
+        (labels / f"{stem}.txt").write_text(body, encoding="utf-8")
+
+    (out_dir / "classes.txt").write_text(
+        NEWLINE.join(CLASS_ORDER) + NEWLINE, encoding="utf-8")
+
+    names = "".join(f"  {i}: {n}{NEWLINE}" for i, n in enumerate(CLASS_ORDER))
+    (out_dir / "data.yaml").write_text(
+        NEWLINE.join(["path: .", "train: images", "val: images", "", "names:", ""]) + names,
+        encoding="utf-8")
+
+    return written, dropped
+
+
+def write_coco(rows, out_dir):
+    """A single COCO instances file. Boxes stay absolute [x, y, w, h] as COCO expects.
+
+    Occlusion, contrast and the military flag ride along as extra keys - COCO loaders
+    ignore what they do not recognise, so nothing is lost by keeping them.
+    """
+    images, annotations = [], []
+    annotation_id = 1
+
+    for row in rows:
+        image_id = row["frame_id"] + 1
+        images.append({
+            "id": image_id,
+            "file_name": row["image_file"],
+            "width": row["image_width"],
+            "height": row["image_height"],
+        })
+
+        for obj in row.get("objects", []):
+            box = obj["geometry"].get("bbox_xywh")
+            class_id = CLASS_ID.get(obj["vehicle"]["class"])
+            if not box or class_id is None:
+                continue
+
+            visibility = obj.get("visibility", {})
+            annotations.append({
+                "id": annotation_id,
+                "image_id": image_id,
+                "category_id": class_id + 1,          # COCO ids are 1-based
+                "bbox": [round(box["x"], 2), round(box["y"], 2),
+                         round(box["w"], 2), round(box["h"], 2)],
+                "area": round(box["w"] * box["h"], 2),
+                "iscrowd": 0,
+                "synthic": {
+                    "military": obj["vehicle"]["military"],
+                    "model": obj["vehicle"]["model"],
+                    "speed_kph_true": obj["kinematics"]["speed_kph_true"],
+                    "speed_kph_radar": obj["kinematics"]["speed_kph_radar"],
+                    "visible_fraction": visibility.get("visible_fraction"),
+                    "occluded": visibility.get("occluded"),
+                    "truncated": visibility.get("truncated"),
+                    "contrast": visibility.get("contrast"),
+                    "triggered_capture": obj.get("triggered_capture", False),
+                },
+            })
+            annotation_id += 1
+
+    document = {
+        "info": {"description": "Synthic Camera synthetic speed-camera dataset"},
+        "images": images,
+        "annotations": annotations,
+        "categories": [{"id": i + 1, "name": n, "supercategory": "vehicle"}
+                       for i, n in enumerate(CLASS_ORDER)],
+    }
+    (out_dir / "annotations_coco.json").write_text(
+        json.dumps(document, indent=1), encoding="utf-8")
+    return len(annotations)
+
+
 def flatten(prefix, value, out):
     """Flatten nested label fields into dotted CSV columns."""
     if isinstance(value, dict):
@@ -91,7 +230,14 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("run", type=Path, help="a Saved/SynthData/<run> directory")
     parser.add_argument("--out", type=Path, default=Path("exported"))
-    parser.add_argument("--format", default="all", choices=["yaml", "json", "csv", "all"])
+    parser.add_argument("--format", default="all",
+                        choices=["yaml", "json", "csv", "yolo", "coco", "all"])
+    parser.add_argument("--min-contrast", type=float, default=6.0,
+                        help="YOLO only: drop objects less separable than this from "
+                             "their background (0 keeps everything)")
+    parser.add_argument("--min-visible", type=float, default=0.15,
+                        help="YOLO only: drop objects with less than this fraction of "
+                             "their bounds unobstructed")
     parser.add_argument("--move", action="store_true",
                         help="move images instead of copying (saves disk on large runs)")
     args = parser.parse_args()
@@ -115,6 +261,8 @@ def main():
     want_yaml = args.format in ("yaml", "all")
     want_json = args.format in ("json", "all")
     want_csv = args.format in ("csv", "all")
+    want_yolo = args.format in ("yolo", "all")
+    want_coco = args.format in ("coco", "all")
 
     images = args.out / "images"
     images.mkdir(parents=True, exist_ok=True)
@@ -125,7 +273,7 @@ def main():
     missing = []
     flat_rows = []
 
-    for row in rows:
+    for index, row in enumerate(rows):
         stem = f"frame_{row['frame_id']:06d}"
         source = args.run / row["image_file"]
 
@@ -135,8 +283,12 @@ def main():
                 shutil.move(str(source), target)
             else:
                 shutil.copy2(source, target)
-            # Point the annotation at the exported name, not the run's internal one.
+            # Point the annotation at the exported name, not the run's internal one,
+            # and write it back into the list. Rebinding the loop variable alone left
+            # `rows` holding the run's names, so anything reading the list afterwards -
+            # the COCO writer did - emitted paths that resolve to nothing.
             row = dict(row, image_file=f"images/{stem}.png")
+            rows[index] = row
         else:
             missing.append(row["image_file"])
 
@@ -165,6 +317,15 @@ def main():
             writer.writeheader()
             writer.writerows(flat_rows)
 
+    # Written after the image copy loop, so image_file already points at the exported
+    # name rather than the run's internal one.
+    yolo_written = yolo_dropped = coco_written = 0
+    if want_yolo:
+        yolo_written, yolo_dropped = write_yolo(rows, args.out,
+                                                args.min_contrast, args.min_visible)
+    if want_coco:
+        coco_written = write_coco(rows, args.out)
+
     print(f"exported {len(rows)} frames to {args.out}")
     print(f"  images/     {len(rows) - len(missing)}")
     if want_yaml:
@@ -173,6 +334,12 @@ def main():
         print(f"  json/       {len(rows)}")
     if want_csv:
         print(f"  annotations.csv  {len(flat_rows)} rows x {len(columns)} columns")
+    if want_yolo:
+        print(f"  labels/     {yolo_written} boxes  ({yolo_dropped} dropped below "
+              f"contrast {args.min_contrast} / visibility {args.min_visible})")
+        print(f"  data.yaml   {len(CLASS_ORDER)} classes")
+    if want_coco:
+        print(f"  annotations_coco.json  {coco_written} annotations")
 
     objects = [o for r in rows for o in r.get("objects", [])]
     occluded = sum(1 for o in objects if o.get("visibility", {}).get("occluded"))

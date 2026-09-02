@@ -89,6 +89,16 @@ Then check the labels actually line up with the pixels:
 python tools/preview_labels.py Saved/SynthData/<run>
 ```
 
+The export writes YOLO (`labels/`, `data.yaml`, `classes.txt`) and COCO
+(`annotations_coco.json`) alongside the full per-frame YAML and JSON. The detection
+formats carry the boxes and are loadable directly; the YAML keeps everything the
+pipeline knows - speed, radar reading, cosine angle, projected 3D cuboid corners,
+occlusion and scene conditions - which no detection format has a place for.
+
+YOLO cannot mark an annotation as ignore, so `--min-contrast` and `--min-visible`
+drop objects not worth training on at export and report how many went. COCO keeps
+everything and carries the same measurements as extra keys.
+
 It reports bbox validity, class and weather balance, the randomisation spread per
 axis, and target contrast - how far the vehicle sits from its background. Heavy fog
 can wash a vehicle out until it is not meaningfully visible while its label stays
