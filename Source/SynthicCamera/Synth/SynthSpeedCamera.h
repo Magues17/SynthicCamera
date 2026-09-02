@@ -96,6 +96,20 @@ public:
 	float AmbientIntensity = 1.0f;
 
 	/**
+	 * Draw each vehicle's tracked bounds in the world, coloured by how much of it the
+	 * camera can actually see: green clear, amber partly hidden, red fully blocked.
+	 *
+	 * Drawn as 3D bounds rather than the 2D box so they are correct from any
+	 * viewpoint, including the play window - a screen-space rectangle would only line
+	 * up with the capture camera and look wrong everywhere else.
+	 *
+	 * Debug only. Verified not to reach the captured frames; if that ever changes the
+	 * dataset would be training on its own annotations.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Synthic|Debug")
+	bool bDrawDebugBounds = true;
+
+	/**
 	 * Draw the trip line across the carriageway. Debug scaffolding: it shows exactly
 	 * where the shutter fires. Safe to leave on - the marker is hidden from scene
 	 * captures, so it cannot reach the dataset either way.
@@ -130,6 +144,9 @@ private:
 	 * the vehicle and the camera are ignored by the trace, so anything hit is by
 	 * definition an occluder.
 	 */
+	/** Debug overlay: each vehicle's bounds, coloured by visibility. */
+	void DrawTrackedBounds() const;
+
 	float MeasureVisibleFraction(const ASynthVehicle& Vehicle,
 		const FVector& LocalCentre, const FVector& LocalExtent) const;
 

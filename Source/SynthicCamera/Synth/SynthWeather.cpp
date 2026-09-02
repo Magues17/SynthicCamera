@@ -18,12 +18,14 @@ FSynthWeatherPreset GetPreset(ESynthWeather Weather)
 	switch (Weather)
 	{
 	case ESynthWeather::Clear:
-		// Hard sun, deep shadows, long visibility. The high-contrast end of the range.
+		// Hard sun, deep shadows, long visibility. Ambient lifted a little from 2.5:
+		// with no hazy or overcast passes left to fill shadows, the unlit faces of a
+		// vehicle were the darkest thing in the set.
 		Preset.SunIntensity = 10.0f;
 		Preset.SunColor = FLinearColor(1.00f, 0.96f, 0.90f);
-		Preset.FogDensity = 0.005f;
+		Preset.FogDensity = 0.004f;
 		Preset.FogColor = FLinearColor(0.50f, 0.58f, 0.70f);
-		Preset.AmbientIntensity = 2.5f;
+		Preset.AmbientIntensity = 3.4f;
 		break;
 
 	case ESynthWeather::Hazy:

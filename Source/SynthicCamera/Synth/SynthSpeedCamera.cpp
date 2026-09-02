@@ -8,6 +8,7 @@
 #include "Camera/CameraTypes.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/StaticMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Dom/JsonObject.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -259,6 +260,47 @@ void ASynthSpeedCamera::SetSceneConditions(float InAmbientIntensity, const FStri
 	ApplyAmbientLighting();
 }
 
+void ASynthSpeedCamera::DrawTrackedBounds() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<ASynthVehicle> It(World); It; ++It)
+	{
+		const ASynthVehicle* Vehicle = *It;
+		if (!Vehicle)
+		{
+			continue;
+		}
+
+		FTransform BoxToWorld;
+		FVector LocalCentre;
+		FVector LocalExtent;
+		Vehicle->GetVisualBounds(BoxToWorld, LocalCentre, LocalExtent);
+
+		const float Visible = MeasureVisibleFraction(*Vehicle, LocalCentre, LocalExtent);
+
+		// Same colours the preview overlay uses, so what is on screen during a run and
+		// what comes out of the tooling afterwards agree.
+		FColor Colour = FColor(87, 217, 138);				// clear
+		if (Visible <= 0.0f)
+		{
+			Colour = FColor(224, 96, 96);					// fully blocked
+		}
+		else if (Visible < 1.0f)
+		{
+			Colour = FColor(224, 166, 72);					// partly hidden
+		}
+
+		DrawDebugBox(World, BoxToWorld.TransformPosition(LocalCentre), LocalExtent,
+			BoxToWorld.GetRotation(), Colour, /*bPersistent*/ false, /*LifeTime*/ -1.0f,
+			/*DepthPriority*/ 0, /*Thickness*/ 4.0f);
+	}
+}
+
 float ASynthSpeedCamera::MeasureVisibleFraction(const ASynthVehicle& Vehicle,
 	const FVector& LocalCentre, const FVector& LocalExtent) const
 {
@@ -359,6 +401,11 @@ void ASynthSpeedCamera::Tick(float DeltaSeconds)
 
 	// Rebuilt wholesale, so vehicles the director destroyed simply stop being tracked.
 	PreviousSignedDistance = MoveTemp(CurrentSignedDistance);
+
+	if (bDrawDebugBounds)
+	{
+		DrawTrackedBounds();
+	}
 }
 
 FMatrix ASynthSpeedCamera::BuildViewProjectionMatrix() const

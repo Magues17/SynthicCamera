@@ -283,8 +283,14 @@ void ASynthCaptureDirector::BeginPlay()
 
 	if (WeatherMix.IsEmpty())
 	{
-		WeatherMix = { ESynthWeather::Clear, ESynthWeather::Hazy,
-			ESynthWeather::Overcast, ESynthWeather::DustStorm };
+		// Clear only. Fog was costing more than it bought: over a third of objects came
+		// back below usable contrast, so most annotations described vehicles lost in
+		// dust rather than vehicles a model could learn from.
+		//
+		// Sun elevation and bearing still vary, so lighting is far from fixed - what is
+		// gone is the atmosphere, not the variation. Add the other conditions back to
+		// this list to restore them; repeat an entry to weight it.
+		WeatherMix = { ESynthWeather::Clear };
 	}
 
 	Stream.Initialize(RandomSeed);
